@@ -1,0 +1,13 @@
+[package]
+name = "ratatui-glamour"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crossterm = "0.28.1"
+ratatui = { version = "0.30.0", features = ["all-widgets", "serde", "unstable"] }
+unicode-width = "0.2.2"
+
+[[example]]
+name = "showcase"
+path = "examples/showcase.rs"
