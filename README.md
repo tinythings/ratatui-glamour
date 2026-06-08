@@ -15,6 +15,14 @@ This crate is not a 1:1 port of Lip Gloss. It is a Rust-native, `ratatui`-friend
 - Layered composition with hit-testing and ANSI/text export
 - Surface helpers for centered panels, patterned fills, tabs, and rounded gradient panels
 
+## Screenshots
+
+### Layout
+<img width="1141" height="1020" alt="Screenshot from 2026-06-08 20-15-20" src="https://github.com/user-attachments/assets/152417de-ec6c-4667-ae77-0f5ebc46ebdd" />
+
+### Compositor
+<img width="1203" height="1042" alt="Screenshot from 2026-06-08 20-16-26" src="https://github.com/user-attachments/assets/9d9ea7da-4b41-44b2-ad75-b32e3597f445" />
+
 ## Installation
 
 ```toml
