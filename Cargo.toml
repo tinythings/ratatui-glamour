@@ -2,6 +2,10 @@
 name = "ratatui-glamour"
 version = "0.1.0"
 edition = "2024"
+authors = ["Bo Maryniuk"]
+license = "MIT"
+readme = "README.md"
+description = "Lip Gloss-inspired terminal styling primitives for ratatui"
 
 [dependencies]
 crossterm = "0.28.1"
