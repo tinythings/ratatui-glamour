@@ -14,6 +14,7 @@ This crate is not a 1:1 port of Lip Gloss. It is a Rust-native, `ratatui`-friend
 - A table widget with wrapping, scrolling, and per-cell styling hooks
 - Layered composition with hit-testing and ANSI/text export
 - Surface helpers for centered panels, patterned fills, tabs, and rounded gradient panels
+- Bubble-style stateful widgets for keys, help, spinners, paginators, viewports, inputs, and lists
 
 ## Screenshots
 
@@ -117,6 +118,7 @@ fn render(frame: &mut Frame) {
 - `surface`: rounded panels, centered layouts, text patterns, and classic tabs
 - `table`: a text table widget with wrapping, sizing, borders, and style callbacks
 - `tree`: styled tree rendering with custom branch and indent behavior
+- `widgets`: Bubble-style stateful widgets ported for ratatui, including key maps, help views, spinners, paginators, viewports, text inputs, text areas, and lists
 
 ## Showcase
 
@@ -124,6 +126,12 @@ Run the interactive demo:
 
 ```bash
 cargo run --example showcase
+```
+
+Run the widget sampler:
+
+```bash
+cargo run --example widgets
 ```
 
 The showcase includes:

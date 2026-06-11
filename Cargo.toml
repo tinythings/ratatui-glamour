@@ -15,3 +15,7 @@ unicode-width = "0.2.2"
 [[example]]
 name = "showcase"
 path = "examples/showcase.rs"
+
+[[example]]
+name = "widgets"
+path = "examples/widgets.rs"
