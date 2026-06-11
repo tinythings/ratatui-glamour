@@ -117,7 +117,7 @@ pub fn key_event_to_string(event: &KeyEvent) -> String {
         KeyCode::Delete => "delete".to_string(),
         KeyCode::Insert => "insert".to_string(),
         KeyCode::Esc => "esc".to_string(),
-        KeyCode::Char(c) => c.to_ascii_lowercase().to_string(),
+        KeyCode::Char(c) => c.to_string(),
         KeyCode::F(n) => format!("f{n}"),
         _ => format!("{:?}", event.code).to_ascii_lowercase(),
     };

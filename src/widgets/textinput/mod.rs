@@ -331,7 +331,7 @@ impl Model {
     }
 
     fn completion_view(&self, offset: usize) -> String {
-        if !self.can_accept_suggestion() {
+        if !self.focus || !self.can_accept_suggestion() {
             return String::new();
         }
         let suggestion = &self.matched_suggestions[self.current_suggestion_index];

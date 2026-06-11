@@ -177,6 +177,7 @@ impl Model {
             .map(|line| UnicodeWidthStr::width(line.as_str()))
             .max()
             .unwrap_or(0);
+        self.clear_highlights();
         if self.y_offset > self.max_y_offset() {
             self.goto_bottom();
         }

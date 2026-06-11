@@ -4,11 +4,11 @@ use crossterm::event::KeyEvent;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Style,
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 
-use crate::widgets::{help, key::{self, Binding}, paginator, spinner, textinput};
+use crate::widgets::{help::{self, KeyMap as _}, key::{self, Binding}, paginator, spinner, textinput};
 
 pub trait Item: Any {
     fn filter_value(&self) -> String;
@@ -81,7 +81,7 @@ impl Default for KeyMap {
             prev_page: Binding::new([key::with_keys(&["left", "h", "pgup", "b", "u"]), key::with_help("←/h/pgup", "prev page")]),
             next_page: Binding::new([key::with_keys(&["right", "l", "pgdown", "f", "d"]), key::with_help("→/l/pgdn", "next page")]),
             go_to_start: Binding::new([key::with_keys(&["home", "g"]), key::with_help("g/home", "go to start")]),
-            go_to_end: Binding::new([key::with_keys(&["end", "g"]), key::with_help("G/end", "go to end")]),
+            go_to_end: Binding::new([key::with_keys(&["end", "G"]), key::with_help("G/end", "go to end")]),
             filter: Binding::new([key::with_keys(&["/"]), key::with_help("/", "filter")]),
             clear_filter: Binding::new([key::with_keys(&["esc"]), key::with_help("esc", "clear filter")]),
             cancel_while_filtering: Binding::new([key::with_keys(&["esc"]), key::with_help("esc", "cancel")]),
@@ -108,7 +108,7 @@ impl help::KeyMap for KeyMap {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Styles {
     pub title_bar: Style,
     pub title: Style,
@@ -128,7 +128,30 @@ pub struct Styles {
     pub filter: textinput::Styles,
 }
 
-#[derive(Clone, Debug, Default)]
+impl Default for Styles {
+    fn default() -> Self {
+        Self {
+            title_bar: Style::default(),
+            title: Style::default().fg(Color::Indexed(230)).bg(Color::Indexed(62)).add_modifier(Modifier::BOLD),
+            spinner: Style::default().fg(Color::Indexed(243)),
+            default_filter_character_match: Style::default().add_modifier(Modifier::UNDERLINED),
+            status_bar: Style::default().fg(Color::Indexed(245)),
+            status_empty: Style::default().fg(Color::Indexed(243)),
+            status_bar_active_filter: Style::default().fg(Color::Indexed(252)),
+            status_bar_filter_count: Style::default().fg(Color::Indexed(240)),
+            no_items: Style::default().fg(Color::Indexed(243)),
+            pagination_style: Style::default().fg(Color::Indexed(245)),
+            help_style: Style::default().fg(Color::Indexed(245)),
+            active_pagination_dot: Style::default().fg(Color::Indexed(245)),
+            inactive_pagination_dot: Style::default().fg(Color::Indexed(238)),
+            arabic_pagination: Style::default().fg(Color::Indexed(245)),
+            divider_dot: Style::default().fg(Color::Indexed(238)),
+            filter: textinput::Styles::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct DefaultItemStyles {
     pub normal_title: Style,
     pub normal_desc: Style,
@@ -137,6 +160,20 @@ pub struct DefaultItemStyles {
     pub dimmed_title: Style,
     pub dimmed_desc: Style,
     pub filter_match: Style,
+}
+
+impl Default for DefaultItemStyles {
+    fn default() -> Self {
+        Self {
+            normal_title: Style::default().fg(Color::Indexed(252)),
+            normal_desc: Style::default().fg(Color::Indexed(245)),
+            selected_title: Style::default().fg(Color::Indexed(213)).add_modifier(Modifier::BOLD),
+            selected_desc: Style::default().fg(Color::Indexed(177)),
+            dimmed_title: Style::default().fg(Color::Indexed(245)),
+            dimmed_desc: Style::default().fg(Color::Indexed(240)),
+            filter_match: Style::default().add_modifier(Modifier::UNDERLINED),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -290,55 +327,148 @@ impl<T: Item, D: ItemDelegate> Model<T, D> {
     }
 
     pub fn items(&self) -> &[T] { &self.items }
-    pub fn set_items(&mut self, items: Vec<T>) { self.items = items; self.cursor = 0; self.rebuild_filter(); self.update_pagination(); }
-    pub fn select(&mut self, index: usize) { self.cursor = index.min(self.filtered_len().saturating_sub(1)); self.update_pagination_for_cursor(); }
+    pub fn set_items(&mut self, items: Vec<T>) { self.items = items; self.cursor = 0; self.rebuild_filter(); self.update_pagination(); self.update_keybindings(); }
+    pub fn set_filter_text(&mut self, filter: &str) {
+        self.filter_state = FilterState::Filtering;
+        self.filter_input.set_value(filter);
+        self.rebuild_filter();
+        self.filter_state = FilterState::FilterApplied;
+        self.go_to_start();
+        self.filter_input.cursor_end();
+        self.update_pagination();
+        self.update_keybindings();
+    }
+    pub fn set_filter_state(&mut self, state: FilterState) {
+        self.go_to_start();
+        self.filter_state = state;
+        self.filter_input.cursor_end();
+        self.filter_input.focus();
+        self.update_keybindings();
+    }
+    pub fn select(&mut self, index: usize) {
+        let page_size = self.page_size().max(1);
+        let bounded = index.min(self.filtered_len().saturating_sub(1));
+        self.paginator.page = bounded / page_size;
+        self.cursor = bounded % page_size;
+    }
     pub fn reset_selected(&mut self) { self.cursor = 0; self.update_pagination_for_cursor(); }
-    pub fn selected_item(&self) -> Option<&T> { self.filtered_indices.get(self.cursor).and_then(|idx| self.items.get(*idx)) }
-    pub fn index(&self) -> usize { self.cursor }
-    pub fn next_page(&mut self) { self.paginator.next_page(); self.cursor = (self.paginator.page * self.page_size()).min(self.filtered_len().saturating_sub(1)); }
-    pub fn prev_page(&mut self) { self.paginator.prev_page(); self.cursor = (self.paginator.page * self.page_size()).min(self.filtered_len().saturating_sub(1)); }
+    pub fn reset_filter(&mut self) { self.reset_filtering(); }
+    pub fn selected_item(&self) -> Option<&T> {
+        if self.filter_state == FilterState::Unfiltered {
+            return self.items.get(self.index());
+        }
+        self.filtered_indices.get(self.index()).and_then(|idx| self.items.get(*idx))
+    }
+    pub fn index(&self) -> usize { self.paginator.page * self.page_size().max(1) + self.cursor }
+    pub fn global_index(&self) -> usize {
+        if self.filter_state == FilterState::Unfiltered {
+            return self.index();
+        }
+        self.filtered_indices.get(self.index()).copied().unwrap_or(self.index())
+    }
+    pub fn cursor(&self) -> usize { self.cursor }
+    pub fn filter_state(&self) -> FilterState { self.filter_state }
+    pub fn filter_value(&self) -> String { self.filter_input.value() }
+    pub fn setting_filter(&self) -> bool { self.filter_state == FilterState::Filtering }
+    pub fn is_filtered(&self) -> bool { self.filter_state == FilterState::FilterApplied }
+    pub fn width(&self) -> usize { self.width }
+    pub fn height(&self) -> usize { self.height }
+    pub fn next_page(&mut self) { self.paginator.next_page(); self.cursor = self.cursor.min(self.max_cursor_index()); }
+    pub fn prev_page(&mut self) { self.paginator.prev_page(); self.cursor = self.cursor.min(self.max_cursor_index()); }
+    pub fn cursor_up(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        } else if self.paginator.page > 0 {
+            self.paginator.prev_page();
+            self.cursor = self.max_cursor_index();
+        } else if self.infinite_scrolling && self.filtered_len() > 0 {
+            self.go_to_end();
+        }
+    }
+    pub fn cursor_down(&mut self) {
+        let max_cursor_index = self.max_cursor_index();
+        if self.cursor < max_cursor_index {
+            self.cursor += 1;
+        } else if !self.paginator.on_last_page() {
+            self.paginator.next_page();
+            self.cursor = 0;
+        } else if self.infinite_scrolling && self.filtered_len() > 0 {
+            self.go_to_start();
+        }
+    }
+    pub fn go_to_start(&mut self) { self.paginator.page = 0; self.cursor = 0; }
+    pub fn go_to_end(&mut self) { self.paginator.page = self.paginator.total_pages.saturating_sub(1); self.cursor = self.max_cursor_index(); }
     pub fn set_width(&mut self, width: usize) { self.width = width; self.help.set_width(width); }
     pub fn set_height(&mut self, height: usize) { self.height = height; self.update_pagination(); }
     pub fn set_size(&mut self, width: usize, height: usize) { self.set_width(width); self.set_height(height); }
+    pub fn set_item(&mut self, index: usize, item: T) { if index < self.items.len() { self.items[index] = item; self.rebuild_filter(); } }
+    pub fn insert_item(&mut self, index: usize, item: T) { let idx = index.min(self.items.len()); self.items.insert(idx, item); self.rebuild_filter(); }
+    pub fn remove_item(&mut self, index: usize) { if index < self.items.len() { self.items.remove(index); self.rebuild_filter(); } }
+    pub fn set_delegate(&mut self, delegate: D) { self.delegate = delegate; self.update_pagination(); }
+    pub fn visible_items(&self) -> Vec<&T> {
+        if self.filter_state == FilterState::Unfiltered {
+            return self.items.iter().collect();
+        }
+        self.filtered_indices.iter().filter_map(|idx| self.items.get(*idx)).collect()
+    }
+    pub fn matches_for_item(&self, index: usize) -> Vec<usize> {
+        let query = self.filter_input.value().to_lowercase();
+        if query.is_empty() { return Vec::new(); }
+        let Some(item) = self.filtered_indices.get(index).and_then(|idx| self.items.get(*idx)) else { return Vec::new(); };
+        let hay = item.filter_value().to_lowercase();
+        hay.find(&query).map(|start| (start..start + query.chars().count()).collect()).unwrap_or_default()
+    }
+    pub fn set_spinner(&mut self, spin: spinner::Spinner) { self.spinner.spinner = spin; }
     pub fn start_spinner(&mut self) { self.show_spinner = true; }
     pub fn stop_spinner(&mut self) { self.show_spinner = false; }
     pub fn toggle_spinner(&mut self) { self.show_spinner = !self.show_spinner; }
+    pub fn disable_quit_keybindings(&mut self) {
+        self.key_map.quit.set_enabled(false);
+        self.key_map.force_quit.set_enabled(false);
+    }
+    pub fn new_status_message(&mut self, msg: impl Into<String>) { self.status_message = msg.into(); }
 
     pub fn handle_key(&mut self, event: &KeyEvent) {
         if self.filter_state == FilterState::Filtering {
             if key::matches(event, [&self.key_map.cancel_while_filtering]) {
                 self.filter_state = if self.filter_input.value().is_empty() { FilterState::Unfiltered } else { FilterState::FilterApplied };
+                self.update_keybindings();
             } else if key::matches(event, [&self.key_map.accept_while_filtering]) {
                 self.filter_state = if self.filter_input.value().is_empty() { FilterState::Unfiltered } else { FilterState::FilterApplied };
                 self.rebuild_filter();
+                self.update_keybindings();
             } else {
                 self.filter_input.handle_key(event);
                 self.rebuild_filter();
+                self.update_keybindings();
             }
             return;
         }
 
         if key::matches(event, [&self.key_map.cursor_up]) {
-            self.cursor = self.cursor.saturating_sub(1);
+            self.cursor_up();
         } else if key::matches(event, [&self.key_map.cursor_down]) {
-            if self.cursor + 1 < self.filtered_len() { self.cursor += 1; }
+            self.cursor_down();
         } else if key::matches(event, [&self.key_map.prev_page]) {
             self.prev_page();
         } else if key::matches(event, [&self.key_map.next_page]) {
             self.next_page();
         } else if key::matches(event, [&self.key_map.go_to_start]) {
-            self.cursor = 0;
+            self.go_to_start();
         } else if key::matches(event, [&self.key_map.go_to_end]) {
-            self.cursor = self.filtered_len().saturating_sub(1);
+            self.go_to_end();
         } else if key::matches(event, [&self.key_map.filter]) && self.filtering_enabled {
             self.filter_state = FilterState::Filtering;
             self.filter_input.focus();
+            self.update_keybindings();
         } else if key::matches(event, [&self.key_map.clear_filter]) {
             self.filter_input.set_value("");
             self.filter_state = FilterState::Unfiltered;
             self.rebuild_filter();
+            self.update_keybindings();
         } else if key::matches(event, [&self.key_map.show_full_help]) {
             self.help.show_all = !self.help.show_all;
+            self.update_keybindings();
         }
         self.update_pagination_for_cursor();
     }
@@ -390,28 +520,55 @@ impl<T: Item, D: ItemDelegate> Model<T, D> {
         self.update_pagination();
     }
 
+    fn reset_filtering(&mut self) {
+        if self.filter_state == FilterState::Unfiltered { return; }
+        self.filter_state = FilterState::Unfiltered;
+        self.filter_input.reset();
+        self.rebuild_filter();
+        self.update_keybindings();
+    }
+
     fn update_pagination(&mut self) {
+        let index = self.index();
         self.paginator.per_page = self.page_size().max(1);
         self.paginator.set_total_pages(self.filtered_len().max(1));
-        self.update_pagination_for_cursor();
+        self.paginator.page = index / self.paginator.per_page;
+        if self.paginator.page >= self.paginator.total_pages {
+            self.paginator.page = self.paginator.total_pages.saturating_sub(1);
+        }
+        self.cursor = index % self.paginator.per_page;
+        self.cursor = self.cursor.min(self.max_cursor_index());
     }
 
     fn update_pagination_for_cursor(&mut self) {
-        let page_size = self.page_size().max(1);
-        self.paginator.page = self.cursor / page_size;
+        self.cursor = self.cursor.min(self.max_cursor_index());
+    }
+
+    fn max_cursor_index(&self) -> usize {
+        self.paginator.items_on_page(self.filtered_len()).saturating_sub(1)
     }
 
     fn page_size(&self) -> usize {
         let reserved = usize::from(self.show_title) + usize::from(self.show_filter && self.filter_state == FilterState::Filtering) + usize::from(self.show_status_bar) + usize::from(self.show_pagination) + if self.show_help { if self.help.show_all { 3 } else { 1 } } else { 0 };
-        self.height.saturating_sub(reserved).max(1)
+        let row_height = self.delegate.height() + self.delegate.spacing();
+        self.height.saturating_sub(reserved).checked_div(row_height.max(1)).unwrap_or(0).max(1)
     }
 
-    fn filtered_len(&self) -> usize { self.filtered_indices.len() }
+    fn filtered_len(&self) -> usize {
+        if self.filter_state == FilterState::Unfiltered {
+            self.items.len()
+        } else {
+            self.filtered_indices.len()
+        }
+    }
 
     fn page_items(&self) -> Vec<(usize, &T)> {
         let page_size = self.page_size();
         let start = self.paginator.page * page_size;
-        let end = (start + page_size).min(self.filtered_indices.len());
+        let end = (start + page_size).min(self.filtered_len());
+        if self.filter_state == FilterState::Unfiltered {
+            return self.items[start..end].iter().enumerate().map(|(i, item)| (start + i, item)).collect();
+        }
         self.filtered_indices[start..end].iter().enumerate().filter_map(|(i, idx)| self.items.get(*idx).map(|item| (start + i, item))).collect()
     }
 
@@ -425,5 +582,43 @@ impl<T: Item, D: ItemDelegate> Model<T, D> {
             format!("{} of {} {} for '{}'", visible, total, self.item_name_plural, filter)
         };
         Line::styled(text, self.styles.status_bar)
+    }
+
+    fn update_keybindings(&mut self) {
+        match self.filter_state {
+            FilterState::Filtering => {
+                self.key_map.cursor_up.set_enabled(false);
+                self.key_map.cursor_down.set_enabled(false);
+                self.key_map.next_page.set_enabled(false);
+                self.key_map.prev_page.set_enabled(false);
+                self.key_map.go_to_start.set_enabled(false);
+                self.key_map.go_to_end.set_enabled(false);
+                self.key_map.filter.set_enabled(false);
+                self.key_map.clear_filter.set_enabled(false);
+                self.key_map.cancel_while_filtering.set_enabled(true);
+                self.key_map.accept_while_filtering.set_enabled(!self.filter_input.value().is_empty());
+                self.key_map.quit.set_enabled(false);
+                self.key_map.show_full_help.set_enabled(false);
+                self.key_map.close_full_help.set_enabled(false);
+            }
+            _ => {
+                let has_items = !self.items.is_empty();
+                self.key_map.cursor_up.set_enabled(has_items);
+                self.key_map.cursor_down.set_enabled(has_items);
+                let has_pages = self.paginator.total_pages > 1;
+                self.key_map.next_page.set_enabled(has_pages);
+                self.key_map.prev_page.set_enabled(has_pages);
+                self.key_map.go_to_start.set_enabled(has_items);
+                self.key_map.go_to_end.set_enabled(has_items);
+                self.key_map.filter.set_enabled(self.filtering_enabled && has_items);
+                self.key_map.clear_filter.set_enabled(self.filter_state == FilterState::FilterApplied);
+                self.key_map.cancel_while_filtering.set_enabled(false);
+                self.key_map.accept_while_filtering.set_enabled(false);
+                self.key_map.quit.set_enabled(true);
+                let min_help = self.help.show_all || self.key_map.full_help().into_iter().flatten().filter(|binding| binding.enabled()).count() > 1;
+                self.key_map.show_full_help.set_enabled(min_help);
+                self.key_map.close_full_help.set_enabled(min_help);
+            }
+        }
     }
 }
