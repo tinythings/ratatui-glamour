@@ -11,7 +11,9 @@ use ratatui_glamour::widgets::{
     filepicker::Model as FilePicker,
     list::{DefaultDelegate, DefaultListItem, Model as ListModel},
     progress::Model as Progress,
-    spinner, textinput::Model as TextInput, timer::Model as Timer,
+    spinner,
+    textinput::Model as TextInput,
+    timer::Model as Timer,
 };
 
 fn main() -> io::Result<()> {
@@ -28,8 +30,16 @@ fn main() -> io::Result<()> {
     let timer = Timer::new(std::time::Duration::from_secs(90), []);
 
     let items = vec![
-        DefaultListItem { title: "alpha".into(), description: "first item".into(), filter_value: "alpha".into() },
-        DefaultListItem { title: "beta".into(), description: "second item".into(), filter_value: "beta".into() },
+        DefaultListItem {
+            title: "alpha".into(),
+            description: "first item".into(),
+            filter_value: "alpha".into(),
+        },
+        DefaultListItem {
+            title: "beta".into(),
+            description: "second item".into(),
+            filter_value: "beta".into(),
+        },
     ];
     let list = ListModel::new(items, DefaultDelegate::new(), 40, 8);
 
@@ -38,12 +48,11 @@ fn main() -> io::Result<()> {
 
     loop {
         terminal.draw(|frame| render(frame, &spin, &progress, &input, &timer, &list, &picker))?;
-        if event::poll(std::time::Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-                    break;
-                }
-            }
+        if event::poll(std::time::Duration::from_millis(50))?
+            && let Event::Key(key) = event::read()?
+            && (key.code == KeyCode::Char('q') || key.code == KeyCode::Esc)
+        {
+            break;
         }
     }
 
@@ -67,7 +76,12 @@ fn render(
         .split(area);
     let left = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Length(3), Constraint::Length(10)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(10),
+        ])
         .split(cols[0]);
     let right = Layout::default()
         .direction(Direction::Vertical)
@@ -83,7 +97,10 @@ fn render(
 }
 
 fn block<W: ratatui::widgets::Widget>(frame: &mut Frame, area: Rect, title: &str, widget: W) {
-    let block = Block::default().title(title).borders(Borders::ALL).border_style(Style::default().fg(Color::Blue));
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Blue));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(widget, inner);

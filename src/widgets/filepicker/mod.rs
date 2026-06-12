@@ -1,7 +1,16 @@
-use std::{fs, path::{Path, PathBuf}, sync::atomic::{AtomicI64, Ordering}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicI64, Ordering},
+};
 
 use crossterm::event::KeyEvent;
-use ratatui::{buffer::Buffer, layout::Rect, style::{Color, Modifier, Style}, text::{Line, Span}};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
 
 use crate::widgets::key::{self, Binding};
 
@@ -29,13 +38,34 @@ impl Default for KeyMap {
         Self {
             go_to_top: Binding::new([key::with_keys(&["g"]), key::with_help("g", "first")]),
             go_to_last: Binding::new([key::with_keys(&["G"]), key::with_help("G", "last")]),
-            down: Binding::new([key::with_keys(&["j", "down", "ctrl+n"]), key::with_help("j", "down")]),
-            up: Binding::new([key::with_keys(&["k", "up", "ctrl+p"]), key::with_help("k", "up")]),
-            page_up: Binding::new([key::with_keys(&["K", "pgup"]), key::with_help("pgup", "page up")]),
-            page_down: Binding::new([key::with_keys(&["J", "pgdown"]), key::with_help("pgdown", "page down")]),
-            back: Binding::new([key::with_keys(&["h", "backspace", "left", "esc"]), key::with_help("h", "back")]),
-            open: Binding::new([key::with_keys(&["l", "right", "enter"]), key::with_help("l", "open")]),
-            select: Binding::new([key::with_keys(&["enter"]), key::with_help("enter", "select")]),
+            down: Binding::new([
+                key::with_keys(&["j", "down", "ctrl+n"]),
+                key::with_help("j", "down"),
+            ]),
+            up: Binding::new([
+                key::with_keys(&["k", "up", "ctrl+p"]),
+                key::with_help("k", "up"),
+            ]),
+            page_up: Binding::new([
+                key::with_keys(&["K", "pgup"]),
+                key::with_help("pgup", "page up"),
+            ]),
+            page_down: Binding::new([
+                key::with_keys(&["J", "pgdown"]),
+                key::with_help("pgdown", "page down"),
+            ]),
+            back: Binding::new([
+                key::with_keys(&["h", "backspace", "left", "esc"]),
+                key::with_help("h", "back"),
+            ]),
+            open: Binding::new([
+                key::with_keys(&["l", "right", "enter"]),
+                key::with_help("l", "open"),
+            ]),
+            select: Binding::new([
+                key::with_keys(&["enter"]),
+                key::with_help("enter", "select"),
+            ]),
         }
     }
 }
@@ -65,7 +95,9 @@ impl Default for Styles {
             file: Style::default(),
             disabled_file: Style::default().fg(Color::Indexed(243)),
             permission: Style::default().fg(Color::Indexed(244)),
-            selected: Style::default().fg(Color::Indexed(212)).add_modifier(Modifier::BOLD),
+            selected: Style::default()
+                .fg(Color::Indexed(212))
+                .add_modifier(Modifier::BOLD),
             disabled_selected: Style::default().fg(Color::Indexed(247)),
             file_size: Style::default().fg(Color::Indexed(240)),
             empty_directory: Style::default().fg(Color::Indexed(240)),
@@ -143,12 +175,25 @@ impl Model {
         }
     }
 
-    pub fn id(&self) -> i64 { self.id }
-    pub fn set_height(&mut self, h: usize) { self.height = h; if self.max_idx > self.height.saturating_sub(1) { self.max_idx = self.min_idx + self.height.saturating_sub(1); } }
-    pub fn height(&self) -> usize { self.height }
-    pub fn files(&self) -> &[FileEntry] { &self.files }
-    pub fn selected_index(&self) -> usize { self.selected }
-    pub fn selected(&self) -> Option<&FileEntry> { self.files.get(self.selected) }
+    pub fn id(&self) -> i64 {
+        self.id
+    }
+    pub fn set_height(&mut self, h: usize) {
+        self.height = h;
+        self.normalize_window();
+    }
+    pub fn height(&self) -> usize {
+        self.height
+    }
+    pub fn files(&self) -> &[FileEntry] {
+        &self.files
+    }
+    pub fn selected_index(&self) -> usize {
+        self.selected
+    }
+    pub fn selected(&self) -> Option<&FileEntry> {
+        self.files.get(self.selected)
+    }
 
     pub fn read_dir(&mut self) -> std::io::Result<()> {
         let mut entries: Vec<FileEntry> = fs::read_dir(&self.current_directory)?
@@ -161,7 +206,11 @@ impl Model {
                 let path = entry.path();
                 let symlink_meta = fs::symlink_metadata(&path).ok()?;
                 let is_symlink = symlink_meta.file_type().is_symlink();
-                let symlink_path = if is_symlink { fs::canonicalize(&path).ok() } else { None };
+                let symlink_path = if is_symlink {
+                    fs::canonicalize(&path).ok()
+                } else {
+                    None
+                };
                 let meta = entry.metadata().ok()?;
                 Some(FileEntry {
                     name,
@@ -174,10 +223,13 @@ impl Model {
                 })
             })
             .collect();
-        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) { (true, false) => std::cmp::Ordering::Less, (false, true) => std::cmp::Ordering::Greater, _ => a.name.cmp(&b.name) });
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        });
         self.files = entries;
-        self.selected = self.selected.min(self.files.len().saturating_sub(1));
-        self.max_idx = self.max_idx.max(self.height.saturating_sub(1));
+        self.normalize_window();
         Ok(())
     }
 
@@ -192,23 +244,39 @@ impl Model {
             self.max_idx = self.files.len().saturating_sub(1);
         } else if key::matches(event, [&self.key_map.down]) {
             self.selected = (self.selected + 1).min(self.files.len().saturating_sub(1));
-            if self.selected > self.max_idx { self.min_idx += 1; self.max_idx += 1; }
+            if self.selected > self.max_idx {
+                self.min_idx += 1;
+                self.max_idx += 1;
+            }
         } else if key::matches(event, [&self.key_map.up]) {
             self.selected = self.selected.saturating_sub(1);
-            if self.selected < self.min_idx { self.min_idx = self.min_idx.saturating_sub(1); self.max_idx = self.max_idx.saturating_sub(1); }
+            if self.selected < self.min_idx {
+                self.min_idx = self.min_idx.saturating_sub(1);
+                self.max_idx = self.max_idx.saturating_sub(1);
+            }
         } else if key::matches(event, [&self.key_map.page_down]) {
             let step = self.height.max(1);
             self.selected = (self.selected + step).min(self.files.len().saturating_sub(1));
             self.min_idx = (self.min_idx + step).min(self.files.len().saturating_sub(step));
-            self.max_idx = (self.min_idx + step).min(self.files.len()).saturating_sub(1);
+            self.max_idx = (self.min_idx + step)
+                .min(self.files.len())
+                .saturating_sub(1);
         } else if key::matches(event, [&self.key_map.page_up]) {
             let step = self.height.max(1);
             self.selected = self.selected.saturating_sub(step);
             self.min_idx = self.min_idx.saturating_sub(step);
             self.max_idx = self.min_idx.saturating_add(step).saturating_sub(1);
         } else if key::matches(event, [&self.key_map.back]) {
-            self.current_directory = self.current_directory.parent().unwrap_or(Path::new("/")).to_path_buf();
-            if let (Some(selected), Some(min_idx), Some(max_idx)) = (self.selected_stack.pop(), self.min_stack.pop(), self.max_stack.pop()) {
+            self.current_directory = self
+                .current_directory
+                .parent()
+                .unwrap_or(Path::new("/"))
+                .to_path_buf();
+            if let (Some(selected), Some(min_idx), Some(max_idx)) = (
+                self.selected_stack.pop(),
+                self.min_stack.pop(),
+                self.max_stack.pop(),
+            ) {
                 self.selected = selected;
                 self.min_idx = min_idx;
                 self.max_idx = max_idx;
@@ -236,62 +304,108 @@ impl Model {
                     self.file_selected = name;
                 }
             }
-        } else if key::matches(event, [&self.key_map.select]) {
-            if let Some(entry) = self.selected() {
-                if (entry.is_dir && self.dir_allowed) || (!entry.is_dir && self.file_allowed && self.entry_allowed(entry)) {
-                    let path = entry.path.clone();
-                    let name = entry.name.clone();
-                    self.path = path;
-                    self.file_selected = name;
-                }
-            }
+        } else if key::matches(event, [&self.key_map.select])
+            && let Some(entry) = self.selected()
+            && ((entry.is_dir && self.dir_allowed)
+                || (!entry.is_dir && self.file_allowed && self.entry_allowed(entry)))
+        {
+            let path = entry.path.clone();
+            let name = entry.name.clone();
+            self.path = path;
+            self.file_selected = name;
         }
         Ok(())
     }
 
     pub fn view(&self) -> Vec<Line<'static>> {
         if self.files.is_empty() {
-            return vec![Line::styled("  Bummer. No Files Found.", self.styles.empty_directory)];
+            return vec![Line::styled(
+                "  Bummer. No Files Found.",
+                self.styles.empty_directory,
+            )];
         }
-        let end = if self.height == 0 { self.files.len() } else { self.max_idx.min(self.files.len().saturating_sub(1)) + 1 };
-        self.files[self.min_idx..end].iter().enumerate().map(|(idx, entry)| {
-            let real_idx = self.min_idx + idx;
-            let disabled = !entry.is_dir && !self.entry_allowed(entry);
-            let selected = real_idx == self.selected;
-            let cursor_style = if disabled { self.styles.disabled_cursor } else { self.styles.cursor };
-            let row_style = if selected {
-                if disabled { self.styles.disabled_selected } else { self.styles.selected }
-            } else if entry.is_dir {
-                self.styles.directory
-            } else if entry.is_symlink {
-                self.styles.symlink
-            } else if disabled {
-                self.styles.disabled_file
-            } else {
-                self.styles.file
-            };
+        let end = if self.height == 0 {
+            self.files.len()
+        } else {
+            self.max_idx.min(self.files.len().saturating_sub(1)) + 1
+        };
+        self.files[self.min_idx..end]
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let real_idx = self.min_idx + idx;
+                let disabled = !entry.is_dir && !self.entry_allowed(entry);
+                let selected = real_idx == self.selected;
+                let cursor_style = if disabled {
+                    self.styles.disabled_cursor
+                } else {
+                    self.styles.cursor
+                };
+                let row_style = if selected {
+                    if disabled {
+                        self.styles.disabled_selected
+                    } else {
+                        self.styles.selected
+                    }
+                } else if entry.is_dir {
+                    self.styles.directory
+                } else if entry.is_symlink {
+                    self.styles.symlink
+                } else if disabled {
+                    self.styles.disabled_file
+                } else {
+                    self.styles.file
+                };
 
-            let mut spans = vec![
-                Span::styled(if selected { self.cursor.clone() } else { " ".to_string() }, cursor_style),
-            ];
-            if self.show_permissions {
+                let mut spans = vec![Span::styled(
+                    if selected {
+                        self.cursor.clone()
+                    } else {
+                        " ".to_string()
+                    },
+                    cursor_style,
+                )];
+                if self.show_permissions {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(
+                        entry.permissions.clone(),
+                        if selected {
+                            row_style
+                        } else {
+                            self.styles.permission
+                        },
+                    ));
+                }
+                if self.show_size {
+                    spans.push(Span::styled(
+                        format!("{:>8}", human_size(entry.size)),
+                        if selected {
+                            row_style
+                        } else {
+                            self.styles.file_size
+                        },
+                    ));
+                }
                 spans.push(Span::raw(" "));
-                spans.push(Span::styled(entry.permissions.clone(), if selected { row_style } else { self.styles.permission }));
-            }
-            if self.show_size {
-                spans.push(Span::styled(format!("{:>8}", human_size(entry.size)), if selected { row_style } else { self.styles.file_size }));
-            }
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled(entry.name.clone(), row_style));
-            if let Some(path) = &entry.symlink_path {
-                spans.push(Span::styled(format!(" → {}", path.display()), self.styles.symlink));
-            }
-            Line::from(spans)
-        }).collect()
+                spans.push(Span::styled(entry.name.clone(), row_style));
+                if let Some(path) = &entry.symlink_path {
+                    spans.push(Span::styled(
+                        format!(" → {}", path.display()),
+                        self.styles.symlink,
+                    ));
+                }
+                Line::from(spans)
+            })
+            .collect()
     }
 
     pub fn render(&self, area: Rect, buf: &mut Buffer) {
-        for (i, line) in self.view().into_iter().take(area.height as usize).enumerate() {
+        for (i, line) in self
+            .view()
+            .into_iter()
+            .take(area.height as usize)
+            .enumerate()
+        {
             buf.set_line(area.x, area.y + i as u16, &line, area.width);
         }
     }
@@ -301,7 +415,11 @@ impl Model {
             return None;
         }
         let entry = self.selected()?;
-        if !entry.is_dir && self.file_allowed && self.entry_allowed(entry) && !self.path.as_os_str().is_empty() {
+        if !entry.is_dir
+            && self.file_allowed
+            && self.entry_allowed(entry)
+            && !self.path.as_os_str().is_empty()
+        {
             return Some(self.path.clone());
         }
         None
@@ -324,6 +442,28 @@ impl Model {
 }
 
 impl Model {
+    fn normalize_window(&mut self) {
+        let len = self.files.len();
+        if len == 0 {
+            self.selected = 0;
+            self.min_idx = 0;
+            self.max_idx = 0;
+            return;
+        }
+
+        let page = self.height.max(1);
+        self.selected = self.selected.min(len.saturating_sub(1));
+        self.min_idx = self.min_idx.min(self.selected).min(len.saturating_sub(1));
+
+        if self.selected >= self.min_idx.saturating_add(page) {
+            self.min_idx = self.selected.saturating_sub(page.saturating_sub(1));
+        }
+
+        let max_start = len.saturating_sub(page);
+        self.min_idx = self.min_idx.min(max_start);
+        self.max_idx = (self.min_idx + page).min(len).saturating_sub(1);
+    }
+
     fn entry_allowed(&self, entry: &FileEntry) -> bool {
         if entry.is_dir {
             return self.dir_allowed;
@@ -331,10 +471,17 @@ impl Model {
         if self.allowed_types.is_empty() {
             return true;
         }
-        entry.path.extension().and_then(|ext| ext.to_str()).map(|ext| {
-            let ext = format!(".{}", ext);
-            self.allowed_types.iter().any(|allowed| allowed.eq_ignore_ascii_case(&ext))
-        }).unwrap_or(false)
+        entry
+            .path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                let ext = format!(".{}", ext);
+                self.allowed_types
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(&ext))
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -350,7 +497,11 @@ fn human_size(size: u64) -> String {
         val /= 1024.0;
         idx += 1;
     }
-    if idx == 0 { format!("{}{}", size, UNITS[idx]) } else { format!("{val:.1}{}", UNITS[idx]) }
+    if idx == 0 {
+        format!("{}{}", size, UNITS[idx])
+    } else {
+        format!("{val:.1}{}", UNITS[idx])
+    }
 }
 
 #[cfg(unix)]
@@ -358,7 +509,13 @@ fn permissions_string(meta: &fs::Metadata) -> String {
     use std::os::unix::fs::PermissionsExt;
 
     let mode = meta.permissions().mode();
-    let kind = if meta.file_type().is_dir() { 'd' } else if meta.file_type().is_symlink() { 'l' } else { '-' };
+    let kind = if meta.file_type().is_dir() {
+        'd'
+    } else if meta.file_type().is_symlink() {
+        'l'
+    } else {
+        '-'
+    };
     let mut out = String::with_capacity(10);
     out.push(kind);
     for shift in [6, 3, 0] {

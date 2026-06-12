@@ -84,7 +84,8 @@ impl Model {
 
         for binding in bindings.iter().filter(|binding| binding.enabled()) {
             let KeyHelp { key, desc } = binding.help();
-            let item_width = UnicodeWidthStr::width(key.as_str()) + 1 + UnicodeWidthStr::width(desc.as_str());
+            let item_width =
+                UnicodeWidthStr::width(key.as_str()) + 1 + UnicodeWidthStr::width(desc.as_str());
             let sep_width = if spans.is_empty() { 0 } else { separator_width };
             if let Some(tail) = self.truncation_tail(total_width, sep_width + item_width) {
                 if !tail.is_empty() {
@@ -93,7 +94,10 @@ impl Model {
                 break;
             }
             if !spans.is_empty() {
-                spans.push(Span::styled(self.short_separator.clone(), self.styles.short_separator));
+                spans.push(Span::styled(
+                    self.short_separator.clone(),
+                    self.styles.short_separator,
+                ));
             }
             spans.push(Span::styled(key.clone(), self.styles.short_key));
             spans.push(Span::raw(" "));
@@ -126,7 +130,11 @@ impl Model {
             .map(|group| {
                 group
                     .iter()
-                    .map(|(key, desc)| UnicodeWidthStr::width(key.as_str()) + 1 + UnicodeWidthStr::width(desc.as_str()))
+                    .map(|(key, desc)| {
+                        UnicodeWidthStr::width(key.as_str())
+                            + 1
+                            + UnicodeWidthStr::width(desc.as_str())
+                    })
                     .max()
                     .unwrap_or(0)
             })
@@ -152,7 +160,10 @@ impl Model {
             let mut spans = Vec::new();
             for col in 0..kept {
                 if col > 0 {
-                    spans.push(Span::styled(self.full_separator.clone(), self.styles.full_separator));
+                    spans.push(Span::styled(
+                        self.full_separator.clone(),
+                        self.styles.full_separator,
+                    ));
                 }
                 let width = widths[col];
                 if let Some((key, desc)) = rendered[col].get(row) {
@@ -170,7 +181,10 @@ impl Model {
             }
 
             if kept < rendered.len() && row == 0 {
-                spans.push(Span::styled(format!(" {}", self.ellipsis), self.styles.ellipsis));
+                spans.push(Span::styled(
+                    format!(" {}", self.ellipsis),
+                    self.styles.ellipsis,
+                ));
             }
             lines.push(Line::from(spans));
         }

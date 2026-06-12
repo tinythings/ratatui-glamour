@@ -18,12 +18,8 @@ pub struct KeyMap {
 impl Default for KeyMap {
     fn default() -> Self {
         Self {
-            prev_page: Binding::new([
-                key::with_keys(&["pgup", "left", "h"]),
-            ]),
-            next_page: Binding::new([
-                key::with_keys(&["pgdown", "right", "l"]),
-            ]),
+            prev_page: Binding::new([key::with_keys(&["pgup", "left", "h"])]),
+            next_page: Binding::new([key::with_keys(&["pgdown", "right", "l"])]),
         }
     }
 }
@@ -73,7 +69,7 @@ impl Model {
             return self.total_pages;
         }
         let mut n = items / self.per_page;
-        if items % self.per_page > 0 {
+        if !items.is_multiple_of(self.per_page) {
             n += 1;
         }
         self.total_pages = n;
@@ -130,7 +126,12 @@ impl Model {
     }
 
     pub fn render(&self, area: Rect, buf: &mut Buffer) {
-        buf.set_line(area.x, area.y, &Line::styled(self.view(), self.style), area.width);
+        buf.set_line(
+            area.x,
+            area.y,
+            &Line::styled(self.view(), self.style),
+            area.width,
+        );
     }
 
     fn dots_view(&self) -> String {

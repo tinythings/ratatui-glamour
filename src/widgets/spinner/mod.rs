@@ -1,4 +1,7 @@
-use std::{sync::atomic::{AtomicI64, Ordering}, time::{Duration, Instant}};
+use std::{
+    sync::atomic::{AtomicI64, Ordering},
+    time::{Duration, Instant},
+};
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Line};
 
@@ -32,40 +35,121 @@ pub struct Tick {
 
 impl Spinner {
     pub fn line() -> Self {
-        Self { frames: vec!["|".into(), "/".into(), "-".into(), "\\".into()], fps: Duration::from_millis(100) }
+        Self {
+            frames: vec!["|".into(), "/".into(), "-".into(), "\\".into()],
+            fps: Duration::from_millis(100),
+        }
     }
     pub fn dot() -> Self {
-        Self { frames: vec!["⣾ ".into(), "⣽ ".into(), "⣻ ".into(), "⢿ ".into(), "⡿ ".into(), "⣟ ".into(), "⣯ ".into(), "⣷ ".into()], fps: Duration::from_millis(100) }
+        Self {
+            frames: vec![
+                "⣾ ".into(),
+                "⣽ ".into(),
+                "⣻ ".into(),
+                "⢿ ".into(),
+                "⡿ ".into(),
+                "⣟ ".into(),
+                "⣯ ".into(),
+                "⣷ ".into(),
+            ],
+            fps: Duration::from_millis(100),
+        }
     }
     pub fn mini_dot() -> Self {
-        Self { frames: vec!["⠋".into(), "⠙".into(), "⠹".into(), "⠸".into(), "⠼".into(), "⠴".into(), "⠦".into(), "⠧".into(), "⠇".into(), "⠏".into()], fps: Duration::from_millis(83) }
+        Self {
+            frames: vec![
+                "⠋".into(),
+                "⠙".into(),
+                "⠹".into(),
+                "⠸".into(),
+                "⠼".into(),
+                "⠴".into(),
+                "⠦".into(),
+                "⠧".into(),
+                "⠇".into(),
+                "⠏".into(),
+            ],
+            fps: Duration::from_millis(83),
+        }
     }
     pub fn jump() -> Self {
-        Self { frames: vec!["⢄".into(), "⢂".into(), "⢁".into(), "⡁".into(), "⡈".into(), "⡐".into(), "⡠".into()], fps: Duration::from_millis(100) }
+        Self {
+            frames: vec![
+                "⢄".into(),
+                "⢂".into(),
+                "⢁".into(),
+                "⡁".into(),
+                "⡈".into(),
+                "⡐".into(),
+                "⡠".into(),
+            ],
+            fps: Duration::from_millis(100),
+        }
     }
     pub fn pulse() -> Self {
-        Self { frames: vec!["█".into(), "▓".into(), "▒".into(), "░".into()], fps: Duration::from_millis(125) }
+        Self {
+            frames: vec!["█".into(), "▓".into(), "▒".into(), "░".into()],
+            fps: Duration::from_millis(125),
+        }
     }
     pub fn points() -> Self {
-        Self { frames: vec!["∙∙∙".into(), "●∙∙".into(), "∙●∙".into(), "∙∙●".into()], fps: Duration::from_millis(142) }
+        Self {
+            frames: vec!["∙∙∙".into(), "●∙∙".into(), "∙●∙".into(), "∙∙●".into()],
+            fps: Duration::from_millis(142),
+        }
     }
     pub fn globe() -> Self {
-        Self { frames: vec!["🌍".into(), "🌎".into(), "🌏".into()], fps: Duration::from_millis(250) }
+        Self {
+            frames: vec!["🌍".into(), "🌎".into(), "🌏".into()],
+            fps: Duration::from_millis(250),
+        }
     }
     pub fn moon() -> Self {
-        Self { frames: vec!["🌑".into(), "🌒".into(), "🌓".into(), "🌔".into(), "🌕".into(), "🌖".into(), "🌗".into(), "🌘".into()], fps: Duration::from_millis(125) }
+        Self {
+            frames: vec![
+                "🌑".into(),
+                "🌒".into(),
+                "🌓".into(),
+                "🌔".into(),
+                "🌕".into(),
+                "🌖".into(),
+                "🌗".into(),
+                "🌘".into(),
+            ],
+            fps: Duration::from_millis(125),
+        }
     }
     pub fn monkey() -> Self {
-        Self { frames: vec!["🙈".into(), "🙉".into(), "🙊".into()], fps: Duration::from_millis(333) }
+        Self {
+            frames: vec!["🙈".into(), "🙉".into(), "🙊".into()],
+            fps: Duration::from_millis(333),
+        }
     }
     pub fn meter() -> Self {
-        Self { frames: vec!["▱▱▱".into(), "▰▱▱".into(), "▰▰▱".into(), "▰▰▰".into(), "▰▰▱".into(), "▰▱▱".into(), "▱▱▱".into()], fps: Duration::from_millis(142) }
+        Self {
+            frames: vec![
+                "▱▱▱".into(),
+                "▰▱▱".into(),
+                "▰▰▱".into(),
+                "▰▰▰".into(),
+                "▰▰▱".into(),
+                "▰▱▱".into(),
+                "▱▱▱".into(),
+            ],
+            fps: Duration::from_millis(142),
+        }
     }
     pub fn hamburger() -> Self {
-        Self { frames: vec!["☱".into(), "☲".into(), "☴".into(), "☲".into()], fps: Duration::from_millis(333) }
+        Self {
+            frames: vec!["☱".into(), "☲".into(), "☴".into(), "☲".into()],
+            fps: Duration::from_millis(333),
+        }
     }
     pub fn ellipsis() -> Self {
-        Self { frames: vec!["".into(), ".".into(), "..".into(), "...".into()], fps: Duration::from_millis(333) }
+        Self {
+            frames: vec!["".into(), ".".into(), "..".into(), "...".into()],
+            fps: Duration::from_millis(333),
+        }
     }
 }
 
@@ -91,7 +175,11 @@ impl Model {
     }
 
     pub fn tick(&self) -> Tick {
-        Tick { at: Instant::now(), tag: self.tag, id: self.id }
+        Tick {
+            at: Instant::now(),
+            tag: self.tag,
+            id: self.id,
+        }
     }
 
     pub fn update(&mut self, msg: Tick) {

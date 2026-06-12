@@ -1,6 +1,11 @@
 use std::collections::BTreeMap;
 
-use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::{Line, Span}};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::Style,
+    text::{Line, Span},
+};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::widgets::key::{self, Binding};
@@ -40,10 +45,7 @@ impl Default for KeyMap {
                 key::with_keys(&["d", "ctrl+d"]),
                 key::with_help("d", "½ page down"),
             ]),
-            up: Binding::new([
-                key::with_keys(&["up", "k"]),
-                key::with_help("↑/k", "up"),
-            ]),
+            up: Binding::new([key::with_keys(&["up", "k"]), key::with_help("↑/k", "up")]),
             down: Binding::new([
                 key::with_keys(&["down", "j"]),
                 key::with_help("↓/j", "down"),
@@ -128,16 +130,34 @@ impl Model {
         model
     }
 
-    pub fn height(&self) -> usize { self.height }
-    pub fn set_height(&mut self, height: usize) { self.height = height; }
-    pub fn width(&self) -> usize { self.width }
-    pub fn set_width(&mut self, width: usize) { self.width = width; }
-    pub fn y_offset(&self) -> usize { self.y_offset }
-    pub fn x_offset(&self) -> usize { self.x_offset }
+    pub fn height(&self) -> usize {
+        self.height
+    }
+    pub fn set_height(&mut self, height: usize) {
+        self.height = height;
+    }
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn set_width(&mut self, width: usize) {
+        self.width = width;
+    }
+    pub fn y_offset(&self) -> usize {
+        self.y_offset
+    }
+    pub fn x_offset(&self) -> usize {
+        self.x_offset
+    }
 
-    pub fn at_top(&self) -> bool { self.y_offset == 0 }
-    pub fn at_bottom(&self) -> bool { self.y_offset >= self.max_y_offset() }
-    pub fn past_bottom(&self) -> bool { self.y_offset > self.max_y_offset() }
+    pub fn at_top(&self) -> bool {
+        self.y_offset == 0
+    }
+    pub fn at_bottom(&self) -> bool {
+        self.y_offset >= self.max_y_offset()
+    }
+    pub fn past_bottom(&self) -> bool {
+        self.y_offset > self.max_y_offset()
+    }
 
     pub fn scroll_percent(&self) -> f64 {
         let total = self.total_visual_lines();
@@ -162,7 +182,13 @@ impl Model {
     }
 
     pub fn set_content(&mut self, content: &str) {
-        self.set_content_lines(content.replace("\r\n", "\n").split('\n').map(ToString::to_string).collect());
+        self.set_content_lines(
+            content
+                .replace("\r\n", "\n")
+                .split('\n')
+                .map(ToString::to_string)
+                .collect(),
+        );
     }
 
     pub fn set_content_lines(&mut self, lines: Vec<String>) {
@@ -191,11 +217,17 @@ impl Model {
     }
 
     pub fn visible_lines(&self) -> Vec<String> {
-        self.visible_render_rows().into_iter().map(|row| row.text).collect()
+        self.visible_render_rows()
+            .into_iter()
+            .map(|row| row.text)
+            .collect()
     }
 
     pub fn visible_rows(&self) -> Vec<Line<'static>> {
-        self.visible_render_rows().into_iter().map(|row| self.render_row(row)).collect()
+        self.visible_render_rows()
+            .into_iter()
+            .map(|row| self.render_row(row))
+            .collect()
     }
 
     fn visible_render_rows(&self) -> Vec<DisplayRow> {
@@ -211,7 +243,13 @@ impl Model {
             let mut filled = raw;
             let width = self.max_width();
             while filled.len() < self.height {
-                filled.push(DisplayRow { text: String::new(), line_index: self.lines.len(), start_col: 0, end_col: width, soft: false });
+                filled.push(DisplayRow {
+                    text: String::new(),
+                    line_index: self.lines.len(),
+                    start_col: 0,
+                    end_col: width,
+                    soft: false,
+                });
             }
             return filled;
         }
@@ -237,20 +275,51 @@ impl Model {
         }
     }
 
-    pub fn page_down(&mut self) { self.scroll_down(self.height); }
-    pub fn page_up(&mut self) { self.scroll_up(self.height); }
-    pub fn half_page_down(&mut self) { self.scroll_down(self.height / 2); }
-    pub fn half_page_up(&mut self) { self.scroll_up(self.height / 2); }
-    pub fn scroll_down(&mut self, n: usize) { self.y_offset = (self.y_offset + n).min(self.max_y_offset()); }
-    pub fn scroll_up(&mut self, n: usize) { self.y_offset = self.y_offset.saturating_sub(n); }
-    pub fn set_horizontal_step(&mut self, n: isize) { self.horizontal_step = n.max(0) as usize; }
-    pub fn set_x_offset(&mut self, n: usize) { self.x_offset = n.min(self.max_x_offset()); }
-    pub fn scroll_left(&mut self, n: usize) { self.x_offset = self.x_offset.saturating_sub(n); }
-    pub fn scroll_right(&mut self, n: usize) { self.x_offset = (self.x_offset + n).min(self.max_x_offset()); }
-    pub fn total_line_count(&self) -> usize { self.total_visual_lines() }
-    pub fn visible_line_count(&self) -> usize { self.visible_render_rows().len() }
-    pub fn goto_top(&mut self) -> Vec<String> { self.y_offset = 0; self.visible_lines() }
-    pub fn goto_bottom(&mut self) -> Vec<String> { self.y_offset = self.max_y_offset(); self.hi_idx = self.find_nearest_match(); self.visible_lines() }
+    pub fn page_down(&mut self) {
+        self.scroll_down(self.height);
+    }
+    pub fn page_up(&mut self) {
+        self.scroll_up(self.height);
+    }
+    pub fn half_page_down(&mut self) {
+        self.scroll_down(self.height / 2);
+    }
+    pub fn half_page_up(&mut self) {
+        self.scroll_up(self.height / 2);
+    }
+    pub fn scroll_down(&mut self, n: usize) {
+        self.y_offset = (self.y_offset + n).min(self.max_y_offset());
+    }
+    pub fn scroll_up(&mut self, n: usize) {
+        self.y_offset = self.y_offset.saturating_sub(n);
+    }
+    pub fn set_horizontal_step(&mut self, n: isize) {
+        self.horizontal_step = n.max(0) as usize;
+    }
+    pub fn set_x_offset(&mut self, n: usize) {
+        self.x_offset = n.min(self.max_x_offset());
+    }
+    pub fn scroll_left(&mut self, n: usize) {
+        self.x_offset = self.x_offset.saturating_sub(n);
+    }
+    pub fn scroll_right(&mut self, n: usize) {
+        self.x_offset = (self.x_offset + n).min(self.max_x_offset());
+    }
+    pub fn total_line_count(&self) -> usize {
+        self.total_visual_lines()
+    }
+    pub fn visible_line_count(&self) -> usize {
+        self.visible_render_rows().len()
+    }
+    pub fn goto_top(&mut self) -> Vec<String> {
+        self.y_offset = 0;
+        self.visible_lines()
+    }
+    pub fn goto_bottom(&mut self) -> Vec<String> {
+        self.y_offset = self.max_y_offset();
+        self.hi_idx = self.find_nearest_match();
+        self.visible_lines()
+    }
     pub fn set_highlights(&mut self, matches: Vec<[usize; 2]>) {
         if matches.is_empty() || self.lines.is_empty() {
             return;
@@ -259,14 +328,21 @@ impl Model {
         self.hi_idx = self.find_nearest_match();
         self.show_highlight();
     }
-    pub fn clear_highlights(&mut self) { self.highlights.clear(); self.hi_idx = -1; }
+    pub fn clear_highlights(&mut self) {
+        self.highlights.clear();
+        self.hi_idx = -1;
+    }
     pub fn highlight_next(&mut self) {
-        if self.highlights.is_empty() { return; }
+        if self.highlights.is_empty() {
+            return;
+        }
         self.hi_idx = (self.hi_idx + 1).rem_euclid(self.highlights.len() as isize);
         self.show_highlight();
     }
     pub fn highlight_previous(&mut self) {
-        if self.highlights.is_empty() { return; }
+        if self.highlights.is_empty() {
+            return;
+        }
         self.hi_idx = (self.hi_idx - 1).rem_euclid(self.highlights.len() as isize);
         self.show_highlight();
     }
@@ -305,7 +381,8 @@ impl Model {
     }
 
     fn max_x_offset(&self) -> usize {
-        self.longest_line_width.saturating_sub(self.max_width().max(1))
+        self.longest_line_width
+            .saturating_sub(self.max_width().max(1))
     }
 
     fn max_width(&self) -> usize {
@@ -324,7 +401,10 @@ impl Model {
             return self.lines.len();
         }
         let max_width = self.max_width().max(1);
-        self.lines.iter().map(|line| display_row_count(line, max_width)).sum()
+        self.lines
+            .iter()
+            .map(|line| display_row_count(line, max_width))
+            .sum()
     }
 
     fn visible_hard_rows(&self) -> Vec<DisplayRow> {
@@ -349,26 +429,55 @@ impl Model {
         for (line_index, line) in self.lines.iter().enumerate() {
             let wrapped = wrap_line(line, max_width);
             for (part, start, end) in wrapped {
-                out.push(DisplayRow { text: part, line_index, start_col: start, end_col: end, soft: start > 0 });
+                out.push(DisplayRow {
+                    text: part,
+                    line_index,
+                    start_col: start,
+                    end_col: end,
+                    soft: start > 0,
+                });
             }
         }
-        out.into_iter().skip(self.y_offset).take(self.height).collect()
+        out.into_iter()
+            .skip(self.y_offset)
+            .take(self.height)
+            .collect()
     }
 
     fn render_row(&self, row: DisplayRow) -> Line<'static> {
         let mut spans = Vec::new();
         if let Some(gutter) = &self.left_gutter_func {
-            spans.push(Span::raw(gutter(GutterContext { index: row.line_index, total_lines: self.total_visual_lines(), soft: row.soft })));
+            spans.push(Span::raw(gutter(GutterContext {
+                index: row.line_index,
+                total_lines: self.total_visual_lines(),
+                soft: row.soft,
+            })));
         }
 
-        let base_style = self.style_line_func.as_ref().map(|f| f(row.line_index)).unwrap_or(self.style);
-        let text_spans = highlight_spans(&row.text, row.start_col, row.end_col, row.line_index, &self.highlights, self.hi_idx, base_style, self.highlight_style, self.selected_highlight_style);
+        let base_style = self
+            .style_line_func
+            .as_ref()
+            .map(|f| f(row.line_index))
+            .unwrap_or(self.style);
+        let text_spans = highlight_spans(
+            &row.text,
+            row.start_col,
+            row.end_col,
+            row.line_index,
+            &self.highlights,
+            self.hi_idx,
+            base_style,
+            self.highlight_style,
+            self.selected_highlight_style,
+        );
         spans.extend(text_spans);
         Line::from(spans)
     }
 
     fn show_highlight(&mut self) {
-        if self.hi_idx < 0 { return; }
+        if self.hi_idx < 0 {
+            return;
+        }
         if let Some(hi) = self.highlights.get(self.hi_idx as usize) {
             let (line, col_start, col_end) = hi.coords();
             self.ensure_visible(line, col_start, col_end);
@@ -385,8 +494,12 @@ impl Model {
     }
 }
 
-pub fn with_width(width: usize) -> Option { Box::new(move |m| m.width = width) }
-pub fn with_height(height: usize) -> Option { Box::new(move |m| m.height = height) }
+pub fn with_width(width: usize) -> Option {
+    Box::new(move |m| m.width = width)
+}
+pub fn with_height(height: usize) -> Option {
+    Box::new(move |m| m.height = height)
+}
 
 fn wrap_line(line: &str, width: usize) -> Vec<(String, usize, usize)> {
     if width == 0 || line.is_empty() {
@@ -412,7 +525,11 @@ fn wrap_line(line: &str, width: usize) -> Vec<(String, usize, usize)> {
     if !segment.is_empty() {
         out.push((segment, start_col, col));
     }
-    if out.is_empty() { vec![(String::new(), 0, 0)] } else { out }
+    if out.is_empty() {
+        vec![(String::new(), 0, 0)]
+    } else {
+        out
+    }
 }
 
 fn slice_display_width(line: &str, offset: usize, width: usize) -> String {
@@ -442,7 +559,7 @@ fn slice_display_width(line: &str, offset: usize, width: usize) -> String {
 fn display_row_count(line: &str, width: usize) -> usize {
     let width = width.max(1);
     let line_width = UnicodeWidthStr::width(line);
-    (line_width.max(1) + width - 1) / width
+    line_width.max(1).div_ceil(width)
 }
 
 #[derive(Clone, Debug)]
@@ -463,7 +580,7 @@ struct HighlightInfo {
 
 impl HighlightInfo {
     fn coords(&self) -> (usize, usize, usize) {
-        for (line, range) in &self.lines {
+        if let Some((line, range)) = self.lines.iter().next() {
             return (*line, range[0], range[1]);
         }
         (self.line_start, 0, 0)
@@ -478,7 +595,11 @@ fn parse_matches(content: &str, matches: &[[usize; 2]]) -> Vec<HighlightInfo> {
         let mut col = 0usize;
         let mut current_line = None::<usize>;
         let mut current_start = 0usize;
-        let mut info = HighlightInfo { line_start: 0, line_end: 0, lines: BTreeMap::new() };
+        let mut info = HighlightInfo {
+            line_start: 0,
+            line_end: 0,
+            lines: BTreeMap::new(),
+        };
         let mut seen = false;
         for ch in content.chars() {
             let len = ch.len_utf8();
@@ -502,11 +623,12 @@ fn parse_matches(content: &str, matches: &[[usize; 2]]) -> Vec<HighlightInfo> {
                 byte = next;
                 continue;
             }
-            if seen && !in_match {
-                if let Some(active) = current_line.take() {
-                    info.lines.insert(active, [current_start, col]);
-                    info.line_end = active;
-                }
+            if seen
+                && !in_match
+                && let Some(active) = current_line.take()
+            {
+                info.lines.insert(active, [current_start, col]);
+                info.line_end = active;
             }
             if seen && in_match && current_line.is_none() {
                 current_line = Some(line);
@@ -526,6 +648,7 @@ fn parse_matches(content: &str, matches: &[[usize; 2]]) -> Vec<HighlightInfo> {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn highlight_spans(
     text: &str,
     start_col: usize,
@@ -543,7 +666,11 @@ fn highlight_spans(
             let seg_start = hs.max(start_col).saturating_sub(start_col);
             let seg_end = he.min(end_col).saturating_sub(start_col);
             if seg_end > seg_start {
-                let style = if idx as isize == selected_idx { selected } else { highlight };
+                let style = if idx as isize == selected_idx {
+                    selected
+                } else {
+                    highlight
+                };
                 marks.push((seg_start, seg_end, style));
             }
         }
@@ -560,7 +687,11 @@ fn highlight_spans(
     for ch in text.chars() {
         let cw = ch.width().unwrap_or(0).max(1);
         let next = col + cw;
-        let style = marks.iter().find(|(s, e, _)| col >= *s && next <= *e).map(|(_, _, st)| *st).unwrap_or(base);
+        let style = marks
+            .iter()
+            .find(|(s, e, _)| col >= *s && next <= *e)
+            .map(|(_, _, st)| *st)
+            .unwrap_or(base);
         if style != active_style {
             if !styled.is_empty() {
                 out.push(Span::styled(std::mem::take(&mut styled), active_style));

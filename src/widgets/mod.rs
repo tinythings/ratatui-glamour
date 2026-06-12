@@ -1,5 +1,5 @@
-pub mod filepicker;
 pub mod cursor;
+pub mod filepicker;
 pub mod help;
 pub mod key;
 pub mod list;

@@ -1,9 +1,24 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{style::Style, text::Line};
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::Line,
+};
 use std::time::Duration;
 use std::{fs, path::PathBuf};
 
-use ratatui_glamour::widgets::{cursor::Model as Cursor, filepicker::Model as FilePicker, help, key, list::{FilterState, Item as ListItem, ItemDelegate, Model as ListModel}, paginator::{Model as Paginator, Type}, progress::Model as Progress, stopwatch::Model as Stopwatch, textinput::Model as TextInput, textarea::Model as TextArea, timer::Model as Timer, viewport::Model as Viewport};
+use ratatui_glamour::widgets::{
+    cursor::Model as Cursor,
+    filepicker::Model as FilePicker,
+    help, key,
+    list::{FilterState, Item as ListItem, ItemDelegate, Model as ListModel, RenderContext},
+    paginator::{Model as Paginator, Type},
+    progress::Model as Progress,
+    stopwatch::Model as Stopwatch,
+    textarea::Model as TextArea,
+    textinput::Model as TextInput,
+    timer::Model as Timer,
+    viewport::Model as Viewport,
+};
 
 #[test]
 fn key_binding_matches_ctrl_combo() {
@@ -78,6 +93,77 @@ fn textinput_word_delete_backward() {
     input.set_value("foo bar baz");
     input.handle_key(&KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
     assert_eq!(input.value(), "foo bar ");
+}
+
+#[test]
+fn textinput_default_dark_styles_match_go_defaults() {
+    let input = TextInput::new();
+    assert_eq!(
+        input.styles().focused.placeholder.fg,
+        Some(Color::Indexed(240))
+    );
+    assert_eq!(
+        input.styles().focused.suggestion.fg,
+        Some(Color::Indexed(240))
+    );
+    assert_eq!(input.styles().focused.prompt.fg, Some(Color::Indexed(7)));
+    assert_eq!(input.styles().blurred.text.fg, Some(Color::Indexed(245)));
+    assert_eq!(input.styles().cursor.style.fg, Some(Color::Indexed(7)));
+}
+
+#[test]
+fn textinput_focused_placeholder_uses_cursor_cell() {
+    let mut input = TextInput::new();
+    input.focus();
+    input.placeholder = "hello".into();
+    input.set_width(5);
+    let view = input.view();
+    assert_eq!(view.to_string(), "> hello");
+    assert!(
+        view.spans[1]
+            .style
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
+#[test]
+fn textinput_blurred_placeholder_does_not_use_cursor_cell() {
+    let mut input = TextInput::new();
+    input.placeholder = "hello".into();
+    input.set_width(5);
+    let view = input.view();
+    assert_eq!(view.to_string(), "> hello");
+    assert_eq!(view.spans[1].style.bg, None);
+}
+
+#[test]
+fn textinput_enter_does_not_insert_space() {
+    let mut input = TextInput::new();
+    input.focus();
+    input.set_value("test");
+    input.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(input.value(), "test");
+}
+
+#[test]
+fn textinput_end_of_line_suggestion_cursor_uses_suggestion_style() {
+    let mut input = TextInput::new();
+    input.focus();
+    input.show_suggestions = true;
+    input.set_suggestions(&["test1".to_string()]);
+    input.handle_key(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    input.handle_key(&KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    input.handle_key(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    input.handle_key(&KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    let view = input.view();
+    assert_eq!(view.to_string(), "> test1");
+    assert!(
+        view.spans[2]
+            .style
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
 }
 
 #[test]
@@ -195,7 +281,10 @@ fn textarea_page_up_and_down_match_go_behavior() {
     area.show_line_numbers = true;
     area.set_height(3);
     area.set_width(20);
-    let lines = (1..=10).map(|n| format!("Line {n}")).collect::<Vec<_>>().join("\n");
+    let lines = (1..=10)
+        .map(|n| format!("Line {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     area.set_value(&lines);
 
     area.move_to_begin();
@@ -218,13 +307,15 @@ fn textarea_page_up_and_down_match_go_behavior() {
 struct SimpleItem(&'static str);
 
 impl ListItem for SimpleItem {
-    fn filter_value(&self) -> String { self.0.to_string() }
+    fn filter_value(&self) -> String {
+        self.0.to_string()
+    }
 }
 
 struct SimpleDelegate;
 
 impl ItemDelegate for SimpleDelegate {
-    fn render(&self, item: &dyn ListItem, _selected: bool, _width: usize) -> Vec<Line<'static>> {
+    fn render(&self, item: &dyn ListItem, _context: RenderContext<'_>) -> Vec<Line<'static>> {
         vec![Line::styled(item.filter_value(), Style::default())]
     }
 }
@@ -242,7 +333,10 @@ impl help::KeyMap for HelpMap {
 
     fn full_help(&self) -> Vec<Vec<key::Binding>> {
         vec![
-            vec![key::Binding::new([key::with_keys(&["x"]), key::with_help("enter", "continue")])],
+            vec![key::Binding::new([
+                key::with_keys(&["x"]),
+                key::with_help("enter", "continue"),
+            ])],
             vec![
                 key::Binding::new([key::with_keys(&["x"]), key::with_help("esc", "back")]),
                 key::Binding::new([key::with_keys(&["x"]), key::with_help("?", "help")]),
@@ -258,11 +352,19 @@ impl help::KeyMap for HelpMap {
 
 #[test]
 fn list_filters_items() {
-    let mut list = ListModel::new(vec![SimpleItem("alpha"), SimpleItem("beta")], SimpleDelegate, 40, 10);
+    let mut list = ListModel::new(
+        vec![SimpleItem("alpha"), SimpleItem("beta")],
+        SimpleDelegate,
+        40,
+        10,
+    );
     list.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
     list.handle_key(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
     list.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(list.selected_item().map(|i| i.filter_value()), Some("beta".to_string()));
+    assert_eq!(
+        list.selected_item().map(|i| i.filter_value()),
+        Some("beta".to_string())
+    );
 }
 
 #[test]
@@ -273,13 +375,22 @@ fn help_full_view_obeys_width() {
     model.set_width(20);
     let lines = model.view(&HelpMap);
     assert!(!lines.is_empty());
-    let rendered = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
+    let rendered = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(rendered.contains("…") || rendered.contains("continue"));
 }
 
 #[test]
 fn list_goes_to_end_with_uppercase_g() {
-    let mut list = ListModel::new(vec![SimpleItem("alpha"), SimpleItem("beta"), SimpleItem("gamma")], SimpleDelegate, 40, 10);
+    let mut list = ListModel::new(
+        vec![SimpleItem("alpha"), SimpleItem("beta"), SimpleItem("gamma")],
+        SimpleDelegate,
+        40,
+        10,
+    );
     list.handle_key(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
     assert_eq!(list.index(), 2);
 }
@@ -287,26 +398,152 @@ fn list_goes_to_end_with_uppercase_g() {
 #[test]
 fn list_selected_item_tracks_page_offset() {
     let mut list = ListModel::new(
-        vec![SimpleItem("one"), SimpleItem("two"), SimpleItem("three"), SimpleItem("four")],
+        vec![
+            SimpleItem("one"),
+            SimpleItem("two"),
+            SimpleItem("three"),
+            SimpleItem("four"),
+        ],
         SimpleDelegate,
         40,
         5,
     );
     list.next_page();
     assert_eq!(list.index(), 1);
-    assert_eq!(list.selected_item().map(|i| i.filter_value()), Some("two".to_string()));
+    assert_eq!(
+        list.selected_item().map(|i| i.filter_value()),
+        Some("two".to_string())
+    );
 }
 
 #[test]
 fn list_set_filter_text_and_state_match_go_behavior() {
-    let mut list = ListModel::new(vec![SimpleItem("foo"), SimpleItem("bar"), SimpleItem("baz")], SimpleDelegate, 40, 10);
+    let mut list = ListModel::new(
+        vec![SimpleItem("foo"), SimpleItem("bar"), SimpleItem("baz")],
+        SimpleDelegate,
+        40,
+        10,
+    );
     list.set_filter_text("ba");
     list.set_filter_state(FilterState::Unfiltered);
     assert_eq!(list.visible_items().len(), 3);
     list.set_filter_state(FilterState::Filtering);
-    assert_eq!(list.visible_items().iter().map(|item| item.filter_value()).collect::<Vec<_>>(), vec!["bar".to_string(), "baz".to_string()]);
+    assert_eq!(
+        list.visible_items()
+            .iter()
+            .map(|item| item.filter_value())
+            .collect::<Vec<_>>(),
+        vec!["bar".to_string(), "baz".to_string()]
+    );
     list.set_filter_state(FilterState::FilterApplied);
-    assert_eq!(list.visible_items().iter().map(|item| item.filter_value()).collect::<Vec<_>>(), vec!["bar".to_string(), "baz".to_string()]);
+    assert_eq!(
+        list.visible_items()
+            .iter()
+            .map(|item| item.filter_value())
+            .collect::<Vec<_>>(),
+        vec!["bar".to_string(), "baz".to_string()]
+    );
+}
+
+#[test]
+fn list_default_delegate_renders_selected_accent() {
+    let list = ListModel::new(
+        vec![
+            ratatui_glamour::widgets::list::DefaultListItem {
+                title: "alpha".into(),
+                description: "first".into(),
+                filter_value: "alpha".into(),
+            },
+            ratatui_glamour::widgets::list::DefaultListItem {
+                title: "beta".into(),
+                description: "second".into(),
+                filter_value: "beta".into(),
+            },
+        ],
+        ratatui_glamour::widgets::list::DefaultDelegate::new(),
+        24,
+        8,
+    );
+    let lines = list.view();
+    assert!(lines.iter().any(|line| line.to_string().starts_with("│ ")));
+}
+
+#[test]
+fn list_filtering_empty_query_dims_rows() {
+    let mut list = ListModel::new(
+        vec![
+            ratatui_glamour::widgets::list::DefaultListItem {
+                title: "alpha".into(),
+                description: "first".into(),
+                filter_value: "alpha".into(),
+            },
+            ratatui_glamour::widgets::list::DefaultListItem {
+                title: "beta".into(),
+                description: "second".into(),
+                filter_value: "beta".into(),
+            },
+        ],
+        ratatui_glamour::widgets::list::DefaultDelegate::new(),
+        24,
+        12,
+    );
+    list.set_filter_state(FilterState::Filtering);
+    let lines = list.view();
+    assert_eq!(
+        lines[5].spans[1].style.fg,
+        Some(ratatui::style::Color::Indexed(240))
+    );
+}
+
+#[test]
+fn list_filter_matches_are_exposed_as_char_positions() {
+    let mut list = ListModel::new(
+        vec![SimpleItem("alpha"), SimpleItem("beta")],
+        SimpleDelegate,
+        40,
+        10,
+    );
+    list.set_filter_text("ph");
+    assert_eq!(list.matches_for_item(0), vec![2, 3]);
+}
+
+#[test]
+fn list_default_delegate_truncates_by_display_width() {
+    let list = ListModel::new(
+        vec![ratatui_glamour::widgets::list::DefaultListItem {
+            title: "你好你好你好".into(),
+            description: "wide".into(),
+            filter_value: "你好你好你好".into(),
+        }],
+        ratatui_glamour::widgets::list::DefaultDelegate::new(),
+        8,
+        8,
+    );
+    let lines = list.view();
+    assert!(lines[1].to_string().contains('…'));
+}
+
+#[test]
+fn list_pagination_line_includes_dots_and_counts() {
+    let list = ListModel::new(
+        vec![
+            SimpleItem("one"),
+            SimpleItem("two"),
+            SimpleItem("three"),
+            SimpleItem("four"),
+        ],
+        SimpleDelegate,
+        18,
+        6,
+    );
+    let rendered = list
+        .view()
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("1/2"));
+    assert!(rendered.contains('•'));
 }
 
 #[test]
@@ -400,8 +637,13 @@ fn filepicker_goto_last_uses_uppercase_g() {
     picker.current_directory = root.clone();
     picker.set_height(10);
     picker.read_dir().unwrap();
-    picker.handle_key(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)).unwrap();
-    assert_eq!(picker.selected_index(), picker.files().len().saturating_sub(1));
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT))
+        .unwrap();
+    assert_eq!(
+        picker.selected_index(),
+        picker.files().len().saturating_sub(1)
+    );
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -415,7 +657,9 @@ fn filepicker_enter_selects_file() {
     picker.current_directory = root.clone();
     picker.set_height(10);
     picker.read_dir().unwrap();
-    picker.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
     assert!(picker.path.ends_with("a.txt"));
     let _ = fs::remove_dir_all(&root);
 }
@@ -432,10 +676,16 @@ fn filepicker_allowed_types_gate_selection() {
     picker.allowed_types = vec![".md".to_string()];
     picker.set_height(10);
     picker.read_dir().unwrap();
-    picker.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
     assert!(picker.path.as_os_str().is_empty());
-    picker.handle_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
-    picker.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))
+        .unwrap();
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
     assert!(picker.path.ends_with("b.md"));
     let _ = fs::remove_dir_all(&root);
 }
@@ -453,8 +703,12 @@ fn filepicker_restores_previous_selection_when_going_back() {
     picker.set_height(10);
     picker.read_dir().unwrap();
     let before = picker.selected_index();
-    picker.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
-    picker.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)).unwrap();
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+        .unwrap();
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))
+        .unwrap();
     assert_eq!(picker.selected_index(), before);
 
     let _ = fs::remove_dir_all(&root);

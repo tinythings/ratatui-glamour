@@ -7,7 +7,12 @@ pub type Enumerator = fn(&[TreeNode], usize) -> String;
 pub fn alphabet(_: &[TreeNode], i: usize) -> String {
     const ABC: usize = 26;
     if i >= ABC * ABC + ABC {
-        format!("{}{}{}.", nth_alpha(i / ABC / ABC - 1), nth_alpha((i / ABC) % ABC - 1), nth_alpha(i % ABC))
+        format!(
+            "{}{}{}.",
+            nth_alpha(i / ABC / ABC - 1),
+            nth_alpha((i / ABC) % ABC - 1),
+            nth_alpha(i % ABC)
+        )
     } else if i >= ABC {
         format!("{}{}.", nth_alpha(i / ABC - 1), nth_alpha(i % ABC))
     } else {
@@ -20,7 +25,21 @@ pub fn arabic(_: &[TreeNode], i: usize) -> String {
 }
 
 pub fn roman(_: &[TreeNode], mut i: usize) -> String {
-    let roman = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")];
+    let roman = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
     i += 1;
     let mut out = String::new();
     for (value, symbol) in roman {
@@ -52,7 +71,9 @@ pub struct List {
 
 impl List {
     pub fn new() -> Self {
-        Self { tree: Tree::new().enumerator(bullet).indenter(|_, _| " ".into()) }
+        Self {
+            tree: Tree::new().enumerator(bullet).indenter(|_, _| " ".into()),
+        }
     }
 
     pub fn width(mut self, width: u16) -> Self {

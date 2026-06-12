@@ -1,6 +1,14 @@
-use std::{sync::{Arc, atomic::{AtomicI64, Ordering}}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicI64, Ordering},
+};
 
-use ratatui::{buffer::Buffer, layout::Rect, style::{Color, Style}, text::Line};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+    text::Line,
+};
 
 use crate::color::blend_1d;
 
@@ -68,9 +76,18 @@ impl Model {
         model
     }
 
-    pub fn set_width(&mut self, width: usize) { self.width = width; }
-    pub fn width(&self) -> usize { self.width }
-    pub fn frame_msg(&self) -> FrameMsg { FrameMsg { id: self.id, tag: self.tag } }
+    pub fn set_width(&mut self, width: usize) {
+        self.width = width;
+    }
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn frame_msg(&self) -> FrameMsg {
+        FrameMsg {
+            id: self.id,
+            tag: self.tag,
+        }
+    }
     pub fn is_animating(&self) -> bool {
         let dist = (self.percent_shown - self.target_percent).abs();
         !(dist < 0.001 && self.velocity.abs() < 0.01)
@@ -101,7 +118,9 @@ impl Model {
         }
     }
 
-    pub fn percent(&self) -> f64 { self.target_percent }
+    pub fn percent(&self) -> f64 {
+        self.target_percent
+    }
 
     pub fn view_as(&self, percent: f64) -> String {
         let pct = percent.clamp(0.0, 1.0);
@@ -123,8 +142,12 @@ impl Model {
     }
 
     pub fn update(&mut self, msg: FrameMsg) -> bool {
-        if msg.id != self.id { return false; }
-        if msg.tag > 0 && msg.tag != self.tag { return false; }
+        if msg.id != self.id {
+            return false;
+        }
+        if msg.tag > 0 && msg.tag != self.tag {
+            return false;
+        }
         if !self.is_animating() {
             self.percent_shown = self.target_percent;
             self.velocity = 0.0;
@@ -132,7 +155,8 @@ impl Model {
         }
         let stiffness = self.spring_frequency / 60.0;
         let delta = self.target_percent - self.percent_shown;
-        self.velocity = (self.velocity + delta * stiffness) * (1.0 - (self.spring_damping / 60.0)).clamp(0.0, 1.0);
+        self.velocity = (self.velocity + delta * stiffness)
+            * (1.0 - (self.spring_damping / 60.0)).clamp(0.0, 1.0);
         self.percent_shown = (self.percent_shown + self.velocity).clamp(0.0, 1.0);
         true
     }
@@ -148,7 +172,8 @@ impl Model {
         let filled = ((bar_width as f64) * pct).round() as usize;
         let is_half_block = self.full == '▌';
         let blend_multiplier = if is_half_block { 2 } else { 1 };
-        let blend_steps = if self.scale_blend { filled } else { bar_width }.saturating_mul(blend_multiplier);
+        let blend_steps =
+            if self.scale_blend { filled } else { bar_width }.saturating_mul(blend_multiplier);
         let blend = if self.colors.len() > 1 {
             blend_1d(blend_steps.max(1), &self.colors)
         } else {
@@ -169,11 +194,20 @@ impl Model {
             }
         }
 
-        let suffix = if self.show_percentage { format_percent(&self.percent_format, pct * 100.0) } else { String::new() };
+        let suffix = if self.show_percentage {
+            format_percent(&self.percent_format, pct * 100.0)
+        } else {
+            String::new()
+        };
         if !suffix.is_empty() {
             let suffix_x = area.x + bar_width.min(area.width as usize) as u16;
             if suffix_x < area.right() {
-                buf.set_line(suffix_x, area.y, &Line::styled(suffix, self.percentage_style), area.right().saturating_sub(suffix_x));
+                buf.set_line(
+                    suffix_x,
+                    area.y,
+                    &Line::styled(suffix, self.percentage_style),
+                    area.right().saturating_sub(suffix_x),
+                );
             }
         }
     }
@@ -186,12 +220,27 @@ impl Model {
         }
     }
 
-    fn fill_style(&self, idx: usize, bar_width: usize, filled: usize, blend: &[Color], is_half_block: bool) -> Style {
+    fn fill_style(
+        &self,
+        idx: usize,
+        bar_width: usize,
+        filled: usize,
+        blend: &[Color],
+        is_half_block: bool,
+    ) -> Style {
         if let Some(color_func) = &self.color_func {
-            let current = if bar_width > 0 { idx as f64 / bar_width as f64 } else { 0.0 };
+            let current = if bar_width > 0 {
+                idx as f64 / bar_width as f64
+            } else {
+                0.0
+            };
             let mut style = self.full_style.fg(color_func(self.percent_shown, current));
             if is_half_block {
-                let next = if bar_width > 0 { ((idx as f64) + 0.5) / bar_width as f64 } else { 0.0 };
+                let next = if bar_width > 0 {
+                    ((idx as f64) + 0.5) / bar_width as f64
+                } else {
+                    0.0
+                };
                 style = style.bg(color_func(self.percent_shown, next.min(1.0)));
             }
             return style;
@@ -199,8 +248,9 @@ impl Model {
 
         if !blend.is_empty() {
             if is_half_block {
-                let blend_index = if self.scale_blend { idx * 2 } else { idx * 2 };
-                return self.full_style
+                let blend_index = idx * 2;
+                return self
+                    .full_style
                     .fg(blend[blend_index.min(blend.len() - 1)])
                     .bg(blend[(blend_index + 1).min(blend.len() - 1)]);
             }
@@ -217,13 +267,30 @@ impl Model {
     }
 }
 
-pub fn with_width(width: usize) -> Opt { Box::new(move |m| m.width = width) }
-pub fn without_percentage() -> Opt { Box::new(|m| m.show_percentage = false) }
-pub fn with_fill_characters(full: char, empty: char) -> Opt { Box::new(move |m| { m.full = full; m.empty = empty; }) }
-pub fn with_color_func(f: ColorFunc) -> Opt { Box::new(move |m| m.color_func = Some(Arc::clone(&f))) }
-pub fn with_scaled(enabled: bool) -> Opt { Box::new(move |m| m.scale_blend = enabled) }
-pub fn with_spring_options(frequency: f64, damping: f64) -> Opt { Box::new(move |m| m.set_spring_options(frequency, damping)) }
-pub fn with_default_blend() -> Opt { Box::new(|m| m.colors = vec![Color::Rgb(0x5A, 0x56, 0xE0), Color::Rgb(0xEE, 0x6F, 0xF8)]) }
+pub fn with_width(width: usize) -> Opt {
+    Box::new(move |m| m.width = width)
+}
+pub fn without_percentage() -> Opt {
+    Box::new(|m| m.show_percentage = false)
+}
+pub fn with_fill_characters(full: char, empty: char) -> Opt {
+    Box::new(move |m| {
+        m.full = full;
+        m.empty = empty;
+    })
+}
+pub fn with_color_func(f: ColorFunc) -> Opt {
+    Box::new(move |m| m.color_func = Some(Arc::clone(&f)))
+}
+pub fn with_scaled(enabled: bool) -> Opt {
+    Box::new(move |m| m.scale_blend = enabled)
+}
+pub fn with_spring_options(frequency: f64, damping: f64) -> Opt {
+    Box::new(move |m| m.set_spring_options(frequency, damping))
+}
+pub fn with_default_blend() -> Opt {
+    Box::new(|m| m.colors = vec![Color::Rgb(0x5A, 0x56, 0xE0), Color::Rgb(0xEE, 0x6F, 0xF8)])
+}
 pub fn with_colors(colors: Vec<Color>) -> Opt {
     Box::new(move |m| {
         m.colors = colors.clone();

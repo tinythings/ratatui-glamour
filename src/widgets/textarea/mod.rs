@@ -7,7 +7,10 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::widgets::{key::{self, Binding}, viewport};
+use crate::widgets::{
+    key::{self, Binding},
+    viewport,
+};
 
 const DEFAULT_HEIGHT: usize = 6;
 const DEFAULT_WIDTH: usize = 40;
@@ -92,7 +95,9 @@ pub struct CursorStyle {
 
 impl Default for CursorStyle {
     fn default() -> Self {
-        Self { style: Style::default().add_modifier(Modifier::REVERSED) }
+        Self {
+            style: Style::default().add_modifier(Modifier::REVERSED),
+        }
     }
 }
 
@@ -178,16 +183,37 @@ impl Model {
         model
     }
 
-    pub fn styles(&self) -> &Styles { &self.styles }
-    pub fn set_styles(&mut self, styles: Styles) { self.styles = styles; self.sync_viewport(); }
-    pub fn focused(&self) -> bool { self.focus }
-    pub fn focus(&mut self) { self.focus = true; }
-    pub fn blur(&mut self) { self.focus = false; }
-    pub fn line_count(&self) -> usize { self.value.len() }
-    pub fn line(&self) -> usize { self.row }
-    pub fn column(&self) -> usize { self.col }
-    pub fn scroll_y_offset(&self) -> usize { self.viewport.y_offset() }
-    pub fn scroll_percent(&self) -> f64 { self.viewport.scroll_percent() }
+    pub fn styles(&self) -> &Styles {
+        &self.styles
+    }
+    pub fn set_styles(&mut self, styles: Styles) {
+        self.styles = styles;
+        self.sync_viewport();
+    }
+    pub fn focused(&self) -> bool {
+        self.focus
+    }
+    pub fn focus(&mut self) {
+        self.focus = true;
+    }
+    pub fn blur(&mut self) {
+        self.focus = false;
+    }
+    pub fn line_count(&self) -> usize {
+        self.value.len()
+    }
+    pub fn line(&self) -> usize {
+        self.row
+    }
+    pub fn column(&self) -> usize {
+        self.col
+    }
+    pub fn scroll_y_offset(&self) -> usize {
+        self.viewport.y_offset()
+    }
+    pub fn scroll_percent(&self) -> f64 {
+        self.viewport.scroll_percent()
+    }
 
     pub fn set_value(&mut self, s: &str) {
         self.reset();
@@ -206,40 +232,109 @@ impl Model {
     }
 
     pub fn value(&self) -> String {
-        self.value.iter().map(|line| line.iter().collect::<String>()).collect::<Vec<_>>().join("\n")
+        self.value
+            .iter()
+            .map(|line| line.iter().collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     pub fn length(&self) -> usize {
         self.value.iter().map(Vec::len).sum::<usize>() + self.value.len().saturating_sub(1)
     }
 
-    pub fn cursor_down(&mut self) { self.set_cursor_line_relative(1); }
-    pub fn cursor_up(&mut self) { self.set_cursor_line_relative(-1); }
-    pub fn set_cursor_column(&mut self, col: usize) { self.col = col.min(self.value[self.row].len()); self.last_char_offset = 0; self.reposition_view(); }
-    pub fn cursor_start(&mut self) { self.set_cursor_column(0); }
-    pub fn cursor_end(&mut self) { self.set_cursor_column(self.value[self.row].len()); }
-    pub fn move_to_begin(&mut self) { self.row = 0; self.cursor_start(); }
-    pub fn move_to_end(&mut self) { self.row = self.value.len().saturating_sub(1); self.cursor_end(); }
-    pub fn reset(&mut self) { self.value = vec![Vec::new()]; self.col = 0; self.row = 0; self.viewport.goto_top(); self.recalculate_height(); }
-    pub fn set_width(&mut self, width: usize) { self.width = width.min(self.max_width); self.viewport.set_width(self.content_width()); self.prompt_width = self.compute_prompt_width(); self.recalculate_height(); }
-    pub fn set_height(&mut self, height: usize) { self.height = height.max(1).min(self.max_height); self.viewport.set_height(self.content_height()); self.recalculate_height(); }
-    pub fn set_prompt_func(&mut self, prompt_width: usize, func: PromptFunc) { self.prompt_width = prompt_width; self.prompt_func = Some(func); self.sync_viewport(); }
+    pub fn cursor_down(&mut self) {
+        self.set_cursor_line_relative(1);
+    }
+    pub fn cursor_up(&mut self) {
+        self.set_cursor_line_relative(-1);
+    }
+    pub fn set_cursor_column(&mut self, col: usize) {
+        self.col = col.min(self.value[self.row].len());
+        self.last_char_offset = 0;
+        self.reposition_view();
+    }
+    pub fn cursor_start(&mut self) {
+        self.set_cursor_column(0);
+    }
+    pub fn cursor_end(&mut self) {
+        self.set_cursor_column(self.value[self.row].len());
+    }
+    pub fn move_to_begin(&mut self) {
+        self.row = 0;
+        self.cursor_start();
+    }
+    pub fn move_to_end(&mut self) {
+        self.row = self.value.len().saturating_sub(1);
+        self.cursor_end();
+    }
+    pub fn reset(&mut self) {
+        self.value = vec![Vec::new()];
+        self.col = 0;
+        self.row = 0;
+        self.viewport.goto_top();
+        self.recalculate_height();
+    }
+    pub fn set_width(&mut self, width: usize) {
+        self.width = width.min(self.max_width);
+        self.viewport.set_width(self.content_width());
+        self.prompt_width = self.compute_prompt_width();
+        self.recalculate_height();
+    }
+    pub fn set_height(&mut self, height: usize) {
+        self.height = height.max(1).min(self.max_height);
+        self.viewport.set_height(self.content_height());
+        self.recalculate_height();
+    }
+    pub fn set_prompt_func(&mut self, prompt_width: usize, func: PromptFunc) {
+        self.prompt_width = prompt_width;
+        self.prompt_func = Some(func);
+        self.sync_viewport();
+    }
 
     pub fn handle_key(&mut self, event: &KeyEvent) {
-        if !self.focus { return; }
+        if !self.focus {
+            return;
+        }
         match event.code {
-            _ if key::matches(event, [&self.key_map.delete_word_backward]) => self.delete_word_backward(),
-            _ if key::matches(event, [&self.key_map.delete_character_backward]) => self.delete_character_backward(),
+            _ if key::matches(event, [&self.key_map.delete_word_backward]) => {
+                self.delete_word_backward()
+            }
+            _ if key::matches(event, [&self.key_map.delete_character_backward]) => {
+                self.delete_character_backward()
+            }
             _ if key::matches(event, [&self.key_map.word_backward]) => self.word_backward(),
-            _ if key::matches(event, [&self.key_map.character_backward]) => { if self.col > 0 { self.set_cursor_column(self.col - 1); } else if self.row > 0 { self.row -= 1; self.cursor_end(); } },
+            _ if key::matches(event, [&self.key_map.character_backward]) => {
+                if self.col > 0 {
+                    self.set_cursor_column(self.col - 1);
+                } else if self.row > 0 {
+                    self.row -= 1;
+                    self.cursor_end();
+                }
+            }
             _ if key::matches(event, [&self.key_map.word_forward]) => self.word_forward(),
-            _ if key::matches(event, [&self.key_map.character_forward]) => { if self.col < self.value[self.row].len() { self.set_cursor_column(self.col + 1); } else if self.row + 1 < self.value.len() { self.row += 1; self.cursor_start(); } },
+            _ if key::matches(event, [&self.key_map.character_forward]) => {
+                if self.col < self.value[self.row].len() {
+                    self.set_cursor_column(self.col + 1);
+                } else if self.row + 1 < self.value.len() {
+                    self.row += 1;
+                    self.cursor_start();
+                }
+            }
             _ if key::matches(event, [&self.key_map.line_start]) => self.cursor_start(),
-            _ if key::matches(event, [&self.key_map.delete_character_forward]) => self.delete_character_forward(),
+            _ if key::matches(event, [&self.key_map.delete_character_forward]) => {
+                self.delete_character_forward()
+            }
             _ if key::matches(event, [&self.key_map.line_end]) => self.cursor_end(),
-            _ if key::matches(event, [&self.key_map.delete_after_cursor]) => self.delete_after_cursor(),
-            _ if key::matches(event, [&self.key_map.delete_before_cursor]) => self.delete_before_cursor(),
-            _ if key::matches(event, [&self.key_map.delete_word_forward]) => self.delete_word_forward(),
+            _ if key::matches(event, [&self.key_map.delete_after_cursor]) => {
+                self.delete_after_cursor()
+            }
+            _ if key::matches(event, [&self.key_map.delete_before_cursor]) => {
+                self.delete_before_cursor()
+            }
+            _ if key::matches(event, [&self.key_map.delete_word_forward]) => {
+                self.delete_word_forward()
+            }
             _ if key::matches(event, [&self.key_map.insert_newline]) => self.insert_runes(&['\n']),
             _ if key::matches(event, [&self.key_map.line_next]) => self.cursor_down(),
             _ if key::matches(event, [&self.key_map.line_previous]) => self.cursor_up(),
@@ -247,11 +342,24 @@ impl Model {
             _ if key::matches(event, [&self.key_map.page_up]) => self.page_up(),
             _ if key::matches(event, [&self.key_map.input_begin]) => self.move_to_begin(),
             _ if key::matches(event, [&self.key_map.input_end]) => self.move_to_end(),
-            _ if key::matches(event, [&self.key_map.lowercase_word_forward]) => self.lowercase_right(),
-            _ if key::matches(event, [&self.key_map.uppercase_word_forward]) => self.uppercase_right(),
-            _ if key::matches(event, [&self.key_map.capitalize_word_forward]) => self.capitalize_right(),
-            _ if key::matches(event, [&self.key_map.transpose_character_backward]) => self.transpose_left(),
-            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) && !event.modifiers.contains(KeyModifiers::ALT) => self.insert_runes(&[c]),
+            _ if key::matches(event, [&self.key_map.lowercase_word_forward]) => {
+                self.lowercase_right()
+            }
+            _ if key::matches(event, [&self.key_map.uppercase_word_forward]) => {
+                self.uppercase_right()
+            }
+            _ if key::matches(event, [&self.key_map.capitalize_word_forward]) => {
+                self.capitalize_right()
+            }
+            _ if key::matches(event, [&self.key_map.transpose_character_backward]) => {
+                self.transpose_left()
+            }
+            KeyCode::Char(c)
+                if !event.modifiers.contains(KeyModifiers::CONTROL)
+                    && !event.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.insert_runes(&[c])
+            }
             _ => {}
         }
         self.recalculate_height();
@@ -273,7 +381,8 @@ impl Model {
                 };
             }
             if counter + line.len() >= self.col {
-                let prefix: Vec<char> = line[..self.col.saturating_sub(counter).min(line.len())].to_vec();
+                let prefix: Vec<char> =
+                    line[..self.col.saturating_sub(counter).min(line.len())].to_vec();
                 return LineInfo {
                     char_offset: display_width_chars(&prefix),
                     column_offset: self.col.saturating_sub(counter),
@@ -290,7 +399,12 @@ impl Model {
     }
 
     pub fn view(&self) -> Vec<Line<'static>> {
-        if self.value.len() == 1 && self.value[0].is_empty() && self.row == 0 && self.col == 0 && !self.placeholder.is_empty() {
+        if self.value.len() == 1
+            && self.value[0].is_empty()
+            && self.row == 0
+            && self.col == 0
+            && !self.placeholder.is_empty()
+        {
             return self.placeholder_lines();
         }
 
@@ -301,41 +415,76 @@ impl Model {
 
         for (logical_idx, row) in self.value.iter().enumerate() {
             let wrapped_lines = wrap(row, self.content_width().max(1));
-            let line_number_style = if self.row == logical_idx { active.cursor_line_number } else { active.line_number };
-            let text_style = if self.row == logical_idx { active.cursor_line } else { active.text };
+            let line_number_style = if self.row == logical_idx {
+                active.cursor_line_number
+            } else {
+                active.line_number
+            };
+            let text_style = if self.row == logical_idx {
+                active.cursor_line
+            } else {
+                active.text
+            };
 
             for (wrapped_idx, wrapped_line) in wrapped_lines.iter().enumerate() {
                 let mut spans = Vec::new();
-                spans.push(Span::styled(self.prompt_for_display_line(display_line), active.prompt));
+                spans.push(Span::styled(
+                    self.prompt_for_display_line(display_line),
+                    active.prompt,
+                ));
                 display_line += 1;
 
                 if self.show_line_numbers {
-                    spans.push(Span::styled(self.line_number_view(if wrapped_idx == 0 { Some(logical_idx + 1) } else { None }), line_number_style));
+                    spans.push(Span::styled(
+                        self.line_number_view(if wrapped_idx == 0 {
+                            Some(logical_idx + 1)
+                        } else {
+                            None
+                        }),
+                        line_number_style,
+                    ));
                 }
 
                 let mut text: Vec<char> = wrapped_line.clone();
                 if display_width_chars(&text) > self.content_width().max(1) {
-                    while text.last() == Some(&' ') && display_width_chars(&text) > self.content_width().max(1) {
+                    while text.last() == Some(&' ')
+                        && display_width_chars(&text) > self.content_width().max(1)
+                    {
                         text.pop();
                     }
                 }
 
                 if self.row == logical_idx && line_info.row_offset == wrapped_idx {
-                    let before: String = text[..line_info.column_offset.min(text.len())].iter().collect();
+                    let before: String = text[..line_info.column_offset.min(text.len())]
+                        .iter()
+                        .collect();
                     spans.push(Span::styled(before, text_style));
-                    let cursor_ch = if self.col >= row.len() && line_info.char_offset >= self.content_width().max(1) {
+                    let cursor_ch = if self.col >= row.len()
+                        && line_info.char_offset >= self.content_width().max(1)
+                    {
                         ' '
                     } else {
-                        text.get(line_info.column_offset).copied().unwrap_or(self.end_of_buffer_character)
+                        text.get(line_info.column_offset)
+                            .copied()
+                            .unwrap_or(self.end_of_buffer_character)
                     };
-                    spans.push(Span::styled(cursor_ch.to_string(), self.styles.cursor.style));
-                    let after: String = text.get(line_info.column_offset + 1..).unwrap_or(&[]).iter().collect();
+                    spans.push(Span::styled(
+                        cursor_ch.to_string(),
+                        self.styles.cursor.style,
+                    ));
+                    let after: String = text
+                        .get(line_info.column_offset + 1..)
+                        .unwrap_or(&[])
+                        .iter()
+                        .collect();
                     spans.push(Span::styled(after, text_style));
                 } else {
                     spans.push(Span::styled(text.iter().collect::<String>(), text_style));
                 }
 
-                let padding = self.content_width().saturating_sub(display_width_chars(&text));
+                let padding = self
+                    .content_width()
+                    .saturating_sub(display_width_chars(&text));
                 if padding > 0 {
                     spans.push(Span::styled(" ".repeat(padding), text_style));
                 }
@@ -345,10 +494,18 @@ impl Model {
 
         while lines.len() < self.height {
             let mut spans = Vec::new();
-            spans.push(Span::styled(self.prompt_for_display_line(display_line), active.prompt));
+            spans.push(Span::styled(
+                self.prompt_for_display_line(display_line),
+                active.prompt,
+            ));
             display_line += 1;
             let mut eob = self.end_of_buffer_character.to_string();
-            let pad = self.content_width().saturating_sub(1) + if self.show_line_numbers { self.line_number_width() } else { 0 };
+            let pad = self.content_width().saturating_sub(1)
+                + if self.show_line_numbers {
+                    self.line_number_width()
+                } else {
+                    0
+                };
             eob.push_str(&" ".repeat(pad));
             spans.push(Span::styled(eob, active.end_of_buffer));
             lines.push(Line::from(spans));
@@ -359,7 +516,12 @@ impl Model {
 
     pub fn render(&self, area: Rect, buf: &mut Buffer) {
         let lines = self.view();
-        for (i, line) in lines.into_iter().skip(self.viewport.y_offset()).take(area.height as usize).enumerate() {
+        for (i, line) in lines
+            .into_iter()
+            .skip(self.viewport.y_offset())
+            .take(area.height as usize)
+            .enumerate()
+        {
             buf.set_line(area.x, area.y + i as u16, &line, area.width);
         }
     }
@@ -370,22 +532,26 @@ impl Model {
             let available = self.char_limit.saturating_sub(self.length());
             runes.truncate(available);
         }
-        if runes.is_empty() { return; }
+        if runes.is_empty() {
+            return;
+        }
         let mut parts: Vec<Vec<char>> = vec![Vec::new()];
         for ch in runes {
-            if ch == '\n' { parts.push(Vec::new()); } else { parts.last_mut().unwrap().push(ch); }
+            if ch == '\n' {
+                parts.push(Vec::new());
+            } else {
+                parts.last_mut().unwrap().push(ch);
+            }
         }
         let tail = self.value[self.row][self.col..].to_vec();
         self.value[self.row].truncate(self.col);
         self.value[self.row].extend_from_slice(&parts[0]);
         self.col += parts[0].len();
         if parts.len() > 1 {
-            let mut insert_at = self.row + 1;
-            for line in parts.iter().skip(1) {
+            for (insert_at, line) in (self.row + 1..).zip(parts.iter().skip(1)) {
                 self.value.insert(insert_at, line.clone());
                 self.row = insert_at;
                 self.col = line.len();
-                insert_at += 1;
             }
         }
         self.value[self.row].extend_from_slice(&tail);
@@ -445,9 +611,15 @@ impl Model {
         }
         let old_col = self.col;
         self.col -= 1;
-        while self.col > 0 && self.value[self.row][self.col].is_whitespace() { self.col -= 1; }
-        while self.col > 0 && !self.value[self.row][self.col].is_whitespace() { self.col -= 1; }
-        if self.col > 0 && self.value[self.row][self.col].is_whitespace() { self.col += 1; }
+        while self.col > 0 && self.value[self.row][self.col].is_whitespace() {
+            self.col -= 1;
+        }
+        while self.col > 0 && !self.value[self.row][self.col].is_whitespace() {
+            self.col -= 1;
+        }
+        if self.col > 0 && self.value[self.row][self.col].is_whitespace() {
+            self.col += 1;
+        }
         self.value[self.row].drain(self.col..old_col);
         self.reposition_view();
     }
@@ -459,28 +631,52 @@ impl Model {
             return;
         }
         let start = self.col;
-        while self.col < self.value[self.row].len() && self.value[self.row][self.col].is_whitespace() { self.col += 1; }
-        while self.col < self.value[self.row].len() && !self.value[self.row][self.col].is_whitespace() { self.col += 1; }
+        while self.col < self.value[self.row].len()
+            && self.value[self.row][self.col].is_whitespace()
+        {
+            self.col += 1;
+        }
+        while self.col < self.value[self.row].len()
+            && !self.value[self.row][self.col].is_whitespace()
+        {
+            self.col += 1;
+        }
         self.value[self.row].drain(start..self.col);
         self.col = start;
         self.reposition_view();
     }
 
     fn word_backward(&mut self) {
-        while self.col > 0 && self.value[self.row][self.col - 1].is_whitespace() { self.col -= 1; }
-        while self.col > 0 && !self.value[self.row][self.col - 1].is_whitespace() { self.col -= 1; }
+        while self.col > 0 && self.value[self.row][self.col - 1].is_whitespace() {
+            self.col -= 1;
+        }
+        while self.col > 0 && !self.value[self.row][self.col - 1].is_whitespace() {
+            self.col -= 1;
+        }
         self.reposition_view();
     }
 
     fn word_forward(&mut self) {
-        while self.col < self.value[self.row].len() && self.value[self.row][self.col].is_whitespace() { self.col += 1; }
-        while self.col < self.value[self.row].len() && !self.value[self.row][self.col].is_whitespace() { self.col += 1; }
+        while self.col < self.value[self.row].len()
+            && self.value[self.row][self.col].is_whitespace()
+        {
+            self.col += 1;
+        }
+        while self.col < self.value[self.row].len()
+            && !self.value[self.row][self.col].is_whitespace()
+        {
+            self.col += 1;
+        }
         self.reposition_view();
     }
 
     fn do_word_right(&mut self, mut f: impl FnMut(usize, usize, &mut Vec<char>)) {
-        while self.col >= self.value[self.row].len() || self.value[self.row][self.col].is_whitespace() {
-            if self.row == self.value.len().saturating_sub(1) && self.col == self.value[self.row].len() {
+        while self.col >= self.value[self.row].len()
+            || self.value[self.row][self.col].is_whitespace()
+        {
+            if self.row == self.value.len().saturating_sub(1)
+                && self.col == self.value[self.row].len()
+            {
                 break;
             }
             if self.col < self.value[self.row].len() {
@@ -535,7 +731,9 @@ impl Model {
     }
 
     fn set_cursor_line_relative(&mut self, delta: isize) {
-        if delta == 0 { return; }
+        if delta == 0 {
+            return;
+        }
         let mut li = self.line_info();
         let char_offset = self.last_char_offset.max(li.char_offset);
         self.last_char_offset = char_offset;
@@ -547,7 +745,8 @@ impl Model {
                     self.row += 1;
                     self.col = 0;
                 } else {
-                    self.col = (li.start_column + li.width + TRAILING_SPACE).min(self.value[self.row].len().saturating_sub(1));
+                    self.col = (li.start_column + li.width + TRAILING_SPACE)
+                        .min(self.value[self.row].len().saturating_sub(1));
                 }
                 li = self.line_info();
             }
@@ -568,7 +767,10 @@ impl Model {
         if nli.width > 0 {
             let mut offset = 0usize;
             while offset < char_offset {
-                if self.row >= self.value.len() || self.col >= self.value[self.row].len() || offset >= nli.char_width.saturating_sub(1) {
+                if self.row >= self.value.len()
+                    || self.col >= self.value[self.row].len()
+                    || offset >= nli.char_width.saturating_sub(1)
+                {
                     break;
                 }
                 offset += char_width(self.value[self.row][self.col]);
@@ -639,19 +841,29 @@ impl Model {
         self.width.max(1)
     }
 
-    fn content_height(&self) -> usize { self.height.max(1) }
+    fn content_height(&self) -> usize {
+        self.height.max(1)
+    }
 
     fn compute_prompt_width(&self) -> usize {
-        self.prompt_width.max(UnicodeWidthStr::width(self.prompt.as_str()))
+        self.prompt_width
+            .max(UnicodeWidthStr::width(self.prompt.as_str()))
     }
 
     fn active_style(&self) -> &StyleState {
-        if self.focus { &self.styles.focused } else { &self.styles.blurred }
+        if self.focus {
+            &self.styles.focused
+        } else {
+            &self.styles.blurred
+        }
     }
 
     fn prompt_for_display_line(&self, line: usize) -> String {
         if let Some(f) = &self.prompt_func {
-            let prompt = f(PromptInfo { line_number: line, focused: self.focus });
+            let prompt = f(PromptInfo {
+                line_number: line,
+                focused: self.focus,
+            });
             let width = UnicodeWidthStr::width(prompt.as_str());
             if width < self.prompt_width {
                 return format!("{}{}", " ".repeat(self.prompt_width - width), prompt);
@@ -672,7 +884,9 @@ impl Model {
         if !self.show_line_numbers {
             return String::new();
         }
-        let raw = number.map(|n| n.to_string()).unwrap_or_else(|| " ".to_string());
+        let raw = number
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| " ".to_string());
         format!(" {:>width$} ", raw, width = digits(self.max_height))
     }
 
@@ -685,7 +899,10 @@ impl Model {
     }
 
     fn total_visual_lines(&self) -> usize {
-        self.value.iter().map(|line| wrap(line, self.content_width().max(1)).len()).sum()
+        self.value
+            .iter()
+            .map(|line| wrap(line, self.content_width().max(1)).len())
+            .sum()
     }
 
     fn page_up(&mut self) {
@@ -698,16 +915,24 @@ impl Model {
     }
 
     fn page_down(&mut self) {
-        let offset = self.cursor_line_number().saturating_sub(self.viewport.y_offset());
+        let offset = self
+            .cursor_line_number()
+            .saturating_sub(self.viewport.y_offset());
         if offset < self.height.saturating_sub(1) {
-            self.set_cursor_line_relative((self.height.saturating_sub(1).saturating_sub(offset)) as isize);
+            self.set_cursor_line_relative(
+                (self.height.saturating_sub(1).saturating_sub(offset)) as isize,
+            );
             return;
         }
         self.set_cursor_line_relative(self.height as isize);
     }
 
     fn rendered_content_string(&self) -> String {
-        self.view().into_iter().map(|line| line.to_string()).collect::<Vec<_>>().join("\n")
+        self.view()
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn placeholder_lines(&self) -> Vec<Line<'static>> {
@@ -718,18 +943,31 @@ impl Model {
             let mut spans = Vec::new();
             spans.push(Span::styled(self.prompt_for_display_line(i), active.prompt));
             if self.show_line_numbers {
-                let line_num = if i == 0 { Some(1) } else if i < placeholder.len() { None } else { None };
-                spans.push(Span::styled(self.line_number_view(line_num), if i < placeholder.len() { active.cursor_line_number } else { active.line_number }));
+                let line_num = if i == 0 { Some(1) } else { None };
+                spans.push(Span::styled(
+                    self.line_number_view(line_num),
+                    if i < placeholder.len() {
+                        active.cursor_line_number
+                    } else {
+                        active.line_number
+                    },
+                ));
             }
             if i == 0 && !placeholder.is_empty() {
-                let first = placeholder[0].chars().next().unwrap_or(self.end_of_buffer_character);
+                let first = placeholder[0]
+                    .chars()
+                    .next()
+                    .unwrap_or(self.end_of_buffer_character);
                 spans.push(Span::styled(first.to_string(), self.styles.cursor.style));
                 let rest = placeholder[0].chars().skip(1).collect::<String>();
                 spans.push(Span::styled(rest, active.placeholder));
             } else if let Some(line) = placeholder.get(i) {
                 spans.push(Span::styled(line.clone(), active.placeholder));
             } else {
-                spans.push(Span::styled(self.end_of_buffer_character.to_string(), active.end_of_buffer));
+                spans.push(Span::styled(
+                    self.end_of_buffer_character.to_string(),
+                    active.end_of_buffer,
+                ));
             }
             out.push(Line::from(spans));
         }
@@ -830,5 +1068,9 @@ fn hard_wrap_lines(s: &str, width: usize) -> Vec<String> {
             out.push(text);
         }
     }
-    if out.is_empty() { vec![String::new()] } else { out }
+    if out.is_empty() {
+        vec![String::new()]
+    } else {
+        out
+    }
 }

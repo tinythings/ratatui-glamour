@@ -2,12 +2,15 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::widgets::{cursor, key::{self, Binding}};
+use crate::widgets::{
+    cursor,
+    key::{self, Binding},
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum EchoMode {
@@ -82,16 +85,36 @@ pub struct CursorStyle {
 impl Default for CursorStyle {
     fn default() -> Self {
         Self {
-            style: Style::default().add_modifier(Modifier::REVERSED),
+            style: Style::default().fg(Color::Indexed(7)),
         }
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Styles {
     pub focused: StyleState,
     pub blurred: StyleState,
     pub cursor: CursorStyle,
+}
+
+impl Default for Styles {
+    fn default() -> Self {
+        Self {
+            focused: StyleState {
+                text: Style::default(),
+                placeholder: Style::default().fg(Color::Indexed(240)),
+                suggestion: Style::default().fg(Color::Indexed(240)),
+                prompt: Style::default().fg(Color::Indexed(7)),
+            },
+            blurred: StyleState {
+                text: Style::default().fg(Color::Indexed(245)),
+                placeholder: Style::default().fg(Color::Indexed(240)),
+                suggestion: Style::default().fg(Color::Indexed(240)),
+                prompt: Style::default().fg(Color::Indexed(7)),
+            },
+            cursor: CursorStyle::default(),
+        }
+    }
 }
 
 pub type ValidateFunc = Box<dyn Fn(&str) -> Result<(), String>>;
@@ -151,16 +174,40 @@ impl Model {
         }
     }
 
-    pub fn styles(&self) -> &Styles { &self.styles }
-    pub fn set_styles(&mut self, styles: Styles) { self.styles = styles; }
-    pub fn width(&self) -> usize { self.width }
-    pub fn set_width(&mut self, width: usize) { self.width = width; self.handle_overflow(); }
-    pub fn value(&self) -> String { self.value.iter().collect() }
-    pub fn position(&self) -> usize { self.pos }
-    pub fn focused(&self) -> bool { self.focus }
-    pub fn focus(&mut self) { self.focus = true; self.virtual_cursor.focus(); }
-    pub fn blur(&mut self) { self.focus = false; self.virtual_cursor.blur(); }
-    pub fn reset(&mut self) { self.value.clear(); self.set_cursor(0); }
+    pub fn styles(&self) -> &Styles {
+        &self.styles
+    }
+    pub fn set_styles(&mut self, styles: Styles) {
+        self.styles = styles;
+    }
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn set_width(&mut self, width: usize) {
+        self.width = width;
+        self.handle_overflow();
+    }
+    pub fn value(&self) -> String {
+        self.value.iter().collect()
+    }
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+    pub fn focused(&self) -> bool {
+        self.focus
+    }
+    pub fn focus(&mut self) {
+        self.focus = true;
+        self.virtual_cursor.focus();
+    }
+    pub fn blur(&mut self) {
+        self.focus = false;
+        self.virtual_cursor.blur();
+    }
+    pub fn reset(&mut self) {
+        self.value.clear();
+        self.set_cursor(0);
+    }
 
     pub fn set_value(&mut self, s: &str) {
         let chars: Vec<char> = sanitize_single_line(s).chars().collect();
@@ -173,8 +220,12 @@ impl Model {
         self.handle_overflow();
     }
 
-    pub fn cursor_start(&mut self) { self.set_cursor(0); }
-    pub fn cursor_end(&mut self) { self.set_cursor(self.value.len()); }
+    pub fn cursor_start(&mut self) {
+        self.set_cursor(0);
+    }
+    pub fn cursor_end(&mut self) {
+        self.set_cursor(self.value.len());
+    }
 
     pub fn set_suggestions(&mut self, suggestions: &[String]) {
         self.suggestions = suggestions.iter().map(|s| s.chars().collect()).collect();
@@ -182,11 +233,17 @@ impl Model {
     }
 
     pub fn available_suggestions(&self) -> Vec<String> {
-        self.suggestions.iter().map(|s| s.iter().collect()).collect()
+        self.suggestions
+            .iter()
+            .map(|s| s.iter().collect())
+            .collect()
     }
 
     pub fn matched_suggestions(&self) -> Vec<String> {
-        self.matched_suggestions.iter().map(|s| s.iter().collect()).collect()
+        self.matched_suggestions
+            .iter()
+            .map(|s| s.iter().collect())
+            .collect()
     }
 
     pub fn current_suggestion(&self) -> String {
@@ -201,36 +258,58 @@ impl Model {
             return;
         }
 
-        if key::matches(event, [&self.key_map.accept_suggestion]) && self.can_accept_suggestion() {
-            if let Some(suggestion) = self.matched_suggestions.get(self.current_suggestion_index).cloned() {
-                self.value = suggestion;
-                self.cursor_end();
-            }
+        if key::matches(event, [&self.key_map.accept_suggestion])
+            && self.can_accept_suggestion()
+            && let Some(suggestion) = self
+                .matched_suggestions
+                .get(self.current_suggestion_index)
+                .cloned()
+        {
+            self.value = suggestion;
+            self.cursor_end();
         }
 
         match event.code {
-            _ if key::matches(event, [&self.key_map.delete_word_backward]) => self.delete_word_backward(),
-            _ if key::matches(event, [&self.key_map.delete_character_backward]) => self.delete_character_backward(),
+            _ if key::matches(event, [&self.key_map.delete_word_backward]) => {
+                self.delete_word_backward()
+            }
+            _ if key::matches(event, [&self.key_map.delete_character_backward]) => {
+                self.delete_character_backward()
+            }
             _ if key::matches(event, [&self.key_map.word_backward]) => self.word_backward(),
             _ if key::matches(event, [&self.key_map.character_backward]) => {
-                if self.pos > 0 { self.set_cursor(self.pos - 1); }
+                if self.pos > 0 {
+                    self.set_cursor(self.pos - 1);
+                }
             }
             _ if key::matches(event, [&self.key_map.word_forward]) => self.word_forward(),
             _ if key::matches(event, [&self.key_map.character_forward]) => {
-                if self.pos < self.value.len() { self.set_cursor(self.pos + 1); }
+                if self.pos < self.value.len() {
+                    self.set_cursor(self.pos + 1);
+                }
             }
             _ if key::matches(event, [&self.key_map.line_start]) => self.cursor_start(),
-            _ if key::matches(event, [&self.key_map.delete_character_forward]) => self.delete_character_forward(),
+            _ if key::matches(event, [&self.key_map.delete_character_forward]) => {
+                self.delete_character_forward()
+            }
             _ if key::matches(event, [&self.key_map.line_end]) => self.cursor_end(),
-            _ if key::matches(event, [&self.key_map.delete_after_cursor]) => self.delete_after_cursor(),
-            _ if key::matches(event, [&self.key_map.delete_before_cursor]) => self.delete_before_cursor(),
-            _ if key::matches(event, [&self.key_map.delete_word_forward]) => self.delete_word_forward(),
+            _ if key::matches(event, [&self.key_map.delete_after_cursor]) => {
+                self.delete_after_cursor()
+            }
+            _ if key::matches(event, [&self.key_map.delete_before_cursor]) => {
+                self.delete_before_cursor()
+            }
+            _ if key::matches(event, [&self.key_map.delete_word_forward]) => {
+                self.delete_word_forward()
+            }
             _ if key::matches(event, [&self.key_map.next_suggestion]) => self.next_suggestion(),
             _ if key::matches(event, [&self.key_map.prev_suggestion]) => self.previous_suggestion(),
-            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) && !event.modifiers.contains(KeyModifiers::ALT) => {
+            KeyCode::Char(c)
+                if !event.modifiers.contains(KeyModifiers::CONTROL)
+                    && !event.modifiers.contains(KeyModifiers::ALT) =>
+            {
                 self.insert_chars(&[c]);
             }
-            KeyCode::Enter => self.insert_chars(&[' ']),
             _ => {}
         }
 
@@ -249,7 +328,12 @@ impl Model {
         let visible = self.visible_value_chars();
         let pos = self.pos.saturating_sub(self.offset).min(visible.len());
         let mut spans = vec![prompt];
-        spans.extend(render_chars(&visible[..pos], styles.text, self.echo_mode, self.echo_character));
+        spans.extend(render_chars(
+            &visible[..pos],
+            styles.text,
+            self.echo_mode,
+            self.echo_character,
+        ));
 
         if pos < visible.len() {
             let mut vc = self.virtual_cursor.clone();
@@ -257,7 +341,12 @@ impl Model {
             vc.style = self.styles.cursor.style;
             vc.set_char(echo_char(visible[pos], self.echo_mode, self.echo_character).to_string());
             spans.push(vc.view());
-            spans.extend(render_chars(&visible[pos + 1..], styles.text, self.echo_mode, self.echo_character));
+            spans.extend(render_chars(
+                &visible[pos + 1..],
+                styles.text,
+                self.echo_mode,
+                self.echo_character,
+            ));
             spans.push(Span::styled(self.completion_view(0), styles.suggestion));
         } else {
             let cursor_char = if self.focus && self.can_accept_suggestion() {
@@ -296,26 +385,26 @@ impl Model {
     }
 
     fn active_style(&self) -> &StyleState {
-        if self.focus { &self.styles.focused } else { &self.styles.blurred }
+        if self.focus {
+            &self.styles.focused
+        } else {
+            &self.styles.blurred
+        }
     }
 
     fn placeholder_view(&self, prompt: Span<'static>, styles: &StyleState) -> Line<'static> {
-        let mut text = self.placeholder.clone();
-        if self.width > 0 {
-            text = text.chars().take(self.width).collect();
-            let shown = UnicodeWidthStr::width(text.as_str());
-            if shown < self.width {
-                text.push_str(&" ".repeat(self.width - shown));
-            }
-        }
+        let text = placeholder_text(&self.placeholder, self.width);
         let mut spans = vec![prompt];
         if self.focus && !text.is_empty() {
             let mut chars = text.chars();
             if let Some(first) = chars.next() {
-                spans.push(Span::styled(first.to_string(), self.styles.cursor.style));
+                let mut vc = self.virtual_cursor.clone();
+                vc.text_style = styles.placeholder;
+                vc.style = self.styles.cursor.style;
+                vc.set_char(first.to_string());
+                spans.push(vc.view());
             }
-            let rest: String = chars.collect();
-            spans.push(Span::styled(rest, styles.placeholder));
+            spans.push(Span::styled(chars.collect::<String>(), styles.placeholder));
         } else {
             spans.push(Span::styled(text, styles.placeholder));
         }
@@ -359,7 +448,12 @@ impl Model {
         let matches: Vec<Vec<char>> = self
             .suggestions
             .iter()
-            .filter(|s| s.iter().collect::<String>().to_lowercase().starts_with(&needle))
+            .filter(|s| {
+                s.iter()
+                    .collect::<String>()
+                    .to_lowercase()
+                    .starts_with(&needle)
+            })
             .cloned()
             .collect();
         if matches != self.matched_suggestions {
@@ -369,22 +463,33 @@ impl Model {
     }
 
     fn next_suggestion(&mut self) {
-        if self.matched_suggestions.is_empty() { return; }
-        self.current_suggestion_index = (self.current_suggestion_index + 1) % self.matched_suggestions.len();
+        if self.matched_suggestions.is_empty() {
+            return;
+        }
+        self.current_suggestion_index =
+            (self.current_suggestion_index + 1) % self.matched_suggestions.len();
     }
 
     fn previous_suggestion(&mut self) {
-        if self.matched_suggestions.is_empty() { return; }
-        self.current_suggestion_index = (self.current_suggestion_index + self.matched_suggestions.len() - 1) % self.matched_suggestions.len();
+        if self.matched_suggestions.is_empty() {
+            return;
+        }
+        self.current_suggestion_index =
+            (self.current_suggestion_index + self.matched_suggestions.len() - 1)
+                % self.matched_suggestions.len();
     }
 
     fn insert_chars(&mut self, chars: &[char]) {
-        let mut sanitized: Vec<char> = sanitize_single_line(&chars.iter().collect::<String>()).chars().collect();
+        let mut sanitized: Vec<char> = sanitize_single_line(&chars.iter().collect::<String>())
+            .chars()
+            .collect();
         if self.char_limit > 0 {
             let available = self.char_limit.saturating_sub(self.value.len());
             sanitized.truncate(available);
         }
-        if sanitized.is_empty() { return; }
+        if sanitized.is_empty() {
+            return;
+        }
         let mut new_value = self.value[..self.pos].to_vec();
         new_value.extend_from_slice(&sanitized);
         new_value.extend_from_slice(&self.value[self.pos..]);
@@ -442,44 +547,82 @@ impl Model {
     }
 
     fn delete_word_backward(&mut self) {
-        if self.pos == 0 || self.value.is_empty() { return; }
-        if self.echo_mode != EchoMode::Normal { self.delete_before_cursor(); return; }
+        if self.pos == 0 || self.value.is_empty() {
+            return;
+        }
+        if self.echo_mode != EchoMode::Normal {
+            self.delete_before_cursor();
+            return;
+        }
         let old = self.pos;
-        while self.pos > 0 && self.value[self.pos - 1].is_whitespace() { self.pos -= 1; }
-        while self.pos > 0 && !self.value[self.pos - 1].is_whitespace() { self.pos -= 1; }
+        while self.pos > 0 && self.value[self.pos - 1].is_whitespace() {
+            self.pos -= 1;
+        }
+        while self.pos > 0 && !self.value[self.pos - 1].is_whitespace() {
+            self.pos -= 1;
+        }
         self.value.drain(self.pos..old);
         self.err = self.validate_chars(&self.value);
     }
 
     fn delete_word_forward(&mut self) {
-        if self.pos >= self.value.len() || self.value.is_empty() { return; }
-        if self.echo_mode != EchoMode::Normal { self.delete_after_cursor(); return; }
+        if self.pos >= self.value.len() || self.value.is_empty() {
+            return;
+        }
+        if self.echo_mode != EchoMode::Normal {
+            self.delete_after_cursor();
+            return;
+        }
         let start = self.pos;
-        while self.pos < self.value.len() && self.value[self.pos].is_whitespace() { self.pos += 1; }
-        while self.pos < self.value.len() && !self.value[self.pos].is_whitespace() { self.pos += 1; }
+        while self.pos < self.value.len() && self.value[self.pos].is_whitespace() {
+            self.pos += 1;
+        }
+        while self.pos < self.value.len() && !self.value[self.pos].is_whitespace() {
+            self.pos += 1;
+        }
         self.value.drain(start..self.pos);
         self.pos = start;
         self.err = self.validate_chars(&self.value);
     }
 
     fn word_backward(&mut self) {
-        if self.pos == 0 || self.value.is_empty() { return; }
-        if self.echo_mode != EchoMode::Normal { self.cursor_start(); return; }
-        while self.pos > 0 && self.value[self.pos - 1].is_whitespace() { self.pos -= 1; }
-        while self.pos > 0 && !self.value[self.pos - 1].is_whitespace() { self.pos -= 1; }
+        if self.pos == 0 || self.value.is_empty() {
+            return;
+        }
+        if self.echo_mode != EchoMode::Normal {
+            self.cursor_start();
+            return;
+        }
+        while self.pos > 0 && self.value[self.pos - 1].is_whitespace() {
+            self.pos -= 1;
+        }
+        while self.pos > 0 && !self.value[self.pos - 1].is_whitespace() {
+            self.pos -= 1;
+        }
         self.handle_overflow();
     }
 
     fn word_forward(&mut self) {
-        if self.pos >= self.value.len() || self.value.is_empty() { return; }
-        if self.echo_mode != EchoMode::Normal { self.cursor_end(); return; }
-        while self.pos < self.value.len() && self.value[self.pos].is_whitespace() { self.pos += 1; }
-        while self.pos < self.value.len() && !self.value[self.pos].is_whitespace() { self.pos += 1; }
+        if self.pos >= self.value.len() || self.value.is_empty() {
+            return;
+        }
+        if self.echo_mode != EchoMode::Normal {
+            self.cursor_end();
+            return;
+        }
+        while self.pos < self.value.len() && self.value[self.pos].is_whitespace() {
+            self.pos += 1;
+        }
+        while self.pos < self.value.len() && !self.value[self.pos].is_whitespace() {
+            self.pos += 1;
+        }
         self.handle_overflow();
     }
 
     fn validate_chars(&self, chars: &[char]) -> Option<String> {
-        self.validate.as_ref().and_then(|f| f(&chars.iter().collect::<String>()).err())
+        self.validate
+            .as_ref()
+            .and_then(|f| f(&chars.iter().collect::<String>()).err())
     }
 
     fn set_value_internal(&mut self, mut chars: Vec<char>, err: Option<String>) {
@@ -498,6 +641,27 @@ impl Model {
 
 fn sanitize_single_line(s: &str) -> String {
     s.replace(['\n', '\r', '\t'], " ")
+}
+
+fn placeholder_text(placeholder: &str, width: usize) -> String {
+    if width == 0 {
+        return placeholder.to_string();
+    }
+
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in placeholder.chars() {
+        let ch_width = ch.width().unwrap_or(0).max(1);
+        if used + ch_width > width {
+            break;
+        }
+        used += ch_width;
+        out.push(ch);
+    }
+    if used < width {
+        out.push_str(&" ".repeat(width - used));
+    }
+    out
 }
 
 fn display_width_chars(chars: &[char]) -> usize {
@@ -544,5 +708,11 @@ fn render_chars(chars: &[char], style: Style, mode: EchoMode, echo: char) -> Vec
     if mode == EchoMode::None {
         return Vec::new();
     }
-    vec![Span::styled(chars.iter().map(|c| echo_char(*c, mode, echo)).collect::<String>(), style)]
+    vec![Span::styled(
+        chars
+            .iter()
+            .map(|c| echo_char(*c, mode, echo))
+            .collect::<String>(),
+        style,
+    )]
 }

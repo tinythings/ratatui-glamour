@@ -1,4 +1,7 @@
-use std::{sync::atomic::{AtomicI64, Ordering}, time::{Duration, Instant}};
+use std::{
+    sync::atomic::{AtomicI64, Ordering},
+    time::{Duration, Instant},
+};
 
 static LAST_ID: AtomicI64 = AtomicI64::new(0);
 
@@ -50,24 +53,61 @@ impl Model {
         model
     }
 
-    pub fn id(&self) -> i64 { self.id }
-    pub fn running(&self) -> bool { !self.timed_out() && self.running }
-    pub fn timed_out(&self) -> bool { self.timeout <= Duration::ZERO }
-    pub fn view(&self) -> String { format_duration(self.timeout) }
-    pub fn start(&self) -> StartStopMsg { StartStopMsg { id: self.id, running: true } }
-    pub fn stop(&self) -> StartStopMsg { StartStopMsg { id: self.id, running: false } }
-    pub fn toggle(&self) -> StartStopMsg { StartStopMsg { id: self.id, running: !self.running() } }
-    pub fn tick_msg(&self) -> TickMsg { TickMsg { id: self.id, timeout: self.timed_out(), tag: self.tag } }
-    pub fn timeout_msg(&self) -> std::option::Option<TimeoutMsg> { self.timed_out().then_some(TimeoutMsg { id: self.id }) }
+    pub fn id(&self) -> i64 {
+        self.id
+    }
+    pub fn running(&self) -> bool {
+        !self.timed_out() && self.running
+    }
+    pub fn timed_out(&self) -> bool {
+        self.timeout <= Duration::ZERO
+    }
+    pub fn view(&self) -> String {
+        format_duration(self.timeout)
+    }
+    pub fn start(&self) -> StartStopMsg {
+        StartStopMsg {
+            id: self.id,
+            running: true,
+        }
+    }
+    pub fn stop(&self) -> StartStopMsg {
+        StartStopMsg {
+            id: self.id,
+            running: false,
+        }
+    }
+    pub fn toggle(&self) -> StartStopMsg {
+        StartStopMsg {
+            id: self.id,
+            running: !self.running(),
+        }
+    }
+    pub fn tick_msg(&self) -> TickMsg {
+        TickMsg {
+            id: self.id,
+            timeout: self.timed_out(),
+            tag: self.tag,
+        }
+    }
+    pub fn timeout_msg(&self) -> std::option::Option<TimeoutMsg> {
+        self.timed_out().then_some(TimeoutMsg { id: self.id })
+    }
 
     pub fn update_start_stop(&mut self, msg: StartStopMsg) {
-        if msg.id != 0 && msg.id != self.id { return; }
+        if msg.id != 0 && msg.id != self.id {
+            return;
+        }
         self.running = msg.running;
     }
 
     pub fn update_tick(&mut self, msg: TickMsg) -> bool {
-        if !self.running() || (msg.id != 0 && msg.id != self.id) { return false; }
-        if msg.tag > 0 && msg.tag != self.tag { return false; }
+        if !self.running() || (msg.id != 0 && msg.id != self.id) {
+            return false;
+        }
+        if msg.tag > 0 && msg.tag != self.tag {
+            return false;
+        }
         self.timeout = self.timeout.saturating_sub(self.interval);
         true
     }

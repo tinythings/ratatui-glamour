@@ -58,7 +58,11 @@ impl StringData {
     }
 
     pub fn at(&self, row: usize, col: usize) -> &str {
-        self.rows.get(row).and_then(|r| r.get(col)).map(String::as_str).unwrap_or("")
+        self.rows
+            .get(row)
+            .and_then(|r| r.get(col))
+            .map(String::as_str)
+            .unwrap_or("")
     }
 }
 
@@ -195,13 +199,34 @@ impl Table {
         self
     }
 
-    pub fn border_top(mut self, enabled: bool) -> Self { self.border_top = enabled; self }
-    pub fn border_bottom(mut self, enabled: bool) -> Self { self.border_bottom = enabled; self }
-    pub fn border_left(mut self, enabled: bool) -> Self { self.border_left = enabled; self }
-    pub fn border_right(mut self, enabled: bool) -> Self { self.border_right = enabled; self }
-    pub fn border_header(mut self, enabled: bool) -> Self { self.border_header = enabled; self }
-    pub fn border_column(mut self, enabled: bool) -> Self { self.border_column = enabled; self }
-    pub fn border_row(mut self, enabled: bool) -> Self { self.border_row = enabled; self }
+    pub fn border_top(mut self, enabled: bool) -> Self {
+        self.border_top = enabled;
+        self
+    }
+    pub fn border_bottom(mut self, enabled: bool) -> Self {
+        self.border_bottom = enabled;
+        self
+    }
+    pub fn border_left(mut self, enabled: bool) -> Self {
+        self.border_left = enabled;
+        self
+    }
+    pub fn border_right(mut self, enabled: bool) -> Self {
+        self.border_right = enabled;
+        self
+    }
+    pub fn border_header(mut self, enabled: bool) -> Self {
+        self.border_header = enabled;
+        self
+    }
+    pub fn border_column(mut self, enabled: bool) -> Self {
+        self.border_column = enabled;
+        self
+    }
+    pub fn border_row(mut self, enabled: bool) -> Self {
+        self.border_row = enabled;
+        self
+    }
 
     pub fn plan(&self, area: Rect) -> TablePlan {
         let width = self.width.unwrap_or(area.width).max(1) as usize;
@@ -247,7 +272,11 @@ impl Table {
                 let mut rh = 1;
                 for (col, width) in col_widths.iter().enumerate() {
                     let cell = self.data.at(row, col);
-                    let wrapped = if self.wrap { wrap_lines(cell, *width) } else { truncate_lines(cell, *width, 1) };
+                    let wrapped = if self.wrap {
+                        wrap_lines(cell, *width)
+                    } else {
+                        truncate_lines(cell, *width, 1)
+                    };
                     rh = rh.max(wrapped.len().max(1));
                 }
                 rh
@@ -263,8 +292,13 @@ impl Table {
         let first_visible = self.y_offset.min(rows);
         let mut used = 0usize;
         let mut visible_rows = Vec::new();
-        for row in first_visible..rows {
-            let needed = row_heights[row] + bool_to_usize(self.border_row && !visible_rows.is_empty());
+        for (row, row_height) in row_heights
+            .iter()
+            .enumerate()
+            .take(rows)
+            .skip(first_visible)
+        {
+            let needed = *row_height + bool_to_usize(self.border_row && !visible_rows.is_empty());
             if used + needed > available_height {
                 break;
             }
@@ -274,7 +308,10 @@ impl Table {
         if visible_rows.is_empty() && first_visible < rows && available_height > 0 {
             visible_rows.push(first_visible);
         }
-        let overflow = visible_rows.last().map(|row| *row + 1 < rows).unwrap_or(false);
+        let overflow = visible_rows
+            .last()
+            .map(|row| *row + 1 < rows)
+            .unwrap_or(false);
 
         TablePlan {
             col_widths,
@@ -288,7 +325,9 @@ impl Table {
     }
 
     fn horizontal_border_cells(&self, columns: usize) -> usize {
-        bool_to_usize(self.border_left) + bool_to_usize(self.border_right) + columns.saturating_sub(1) * bool_to_usize(self.border_column)
+        bool_to_usize(self.border_left)
+            + bool_to_usize(self.border_right)
+            + columns.saturating_sub(1) * bool_to_usize(self.border_column)
     }
 
     fn cell_style(&self, row: isize, col: usize) -> Style {
@@ -323,7 +362,17 @@ fn render_table(table: &Table, plan: &TablePlan, buf: &mut Buffer) {
     let columns = plan.col_widths.len();
 
     if table.border_top {
-        draw_horizontal_border(buf, x, y, &plan.col_widths, table, table.border.top_left, table.border.middle_top, table.border.top_right, table.border.top);
+        draw_horizontal_border(
+            buf,
+            x,
+            y,
+            &plan.col_widths,
+            table,
+            table.border.top_left,
+            table.border.middle_top,
+            table.border.top_right,
+            table.border.top,
+        );
         y += 1;
     }
 
@@ -334,7 +383,16 @@ fn render_table(table: &Table, plan: &TablePlan, buf: &mut Buffer) {
             .enumerate()
             .map(|(col, header)| truncate_lines(header, plan.col_widths[col], 1))
             .collect();
-        draw_row(buf, x, y, &plan.col_widths, 1, &lines, |col| table.cell_style(HEADER_ROW, col), table);
+        draw_row(
+            buf,
+            x,
+            y,
+            &plan.col_widths,
+            1,
+            &lines,
+            |col| table.cell_style(HEADER_ROW, col),
+            table,
+        );
         y += 1;
 
         if table.border_header {
@@ -357,10 +415,23 @@ fn render_table(table: &Table, plan: &TablePlan, buf: &mut Buffer) {
         let cell_lines: Vec<Vec<String>> = (0..columns)
             .map(|col| {
                 let cell = table.data.at(*row, col);
-                if table.wrap { wrap_lines(cell, plan.col_widths[col]) } else { truncate_lines(cell, plan.col_widths[col], plan.row_heights[*row]) }
+                if table.wrap {
+                    wrap_lines(cell, plan.col_widths[col])
+                } else {
+                    truncate_lines(cell, plan.col_widths[col], plan.row_heights[*row])
+                }
             })
             .collect();
-        draw_row(buf, x, y, &plan.col_widths, plan.row_heights[*row], &cell_lines, |col| table.cell_style(*row as isize, col), table);
+        draw_row(
+            buf,
+            x,
+            y,
+            &plan.col_widths,
+            plan.row_heights[*row],
+            &cell_lines,
+            |col| table.cell_style(*row as isize, col),
+            table,
+        );
         y += plan.row_heights[*row] as u16;
 
         if table.border_row && vis_idx + 1 < plan.visible_rows.len() {
@@ -379,9 +450,23 @@ fn render_table(table: &Table, plan: &TablePlan, buf: &mut Buffer) {
         }
     }
 
-    if plan.overflow && y < plan.area.bottom().saturating_sub(bool_to_u16(table.border_bottom)) {
+    if plan.overflow
+        && y < plan
+            .area
+            .bottom()
+            .saturating_sub(bool_to_u16(table.border_bottom))
+    {
         let cell_lines: Vec<Vec<String>> = (0..columns).map(|_| vec!["…".into()]).collect();
-        draw_row(buf, x, y, &plan.col_widths, 1, &cell_lines, |_| table.base_style, table);
+        draw_row(
+            buf,
+            x,
+            y,
+            &plan.col_widths,
+            1,
+            &cell_lines,
+            |_| table.base_style,
+            table,
+        );
         y += 1;
     }
 
@@ -400,8 +485,17 @@ fn render_table(table: &Table, plan: &TablePlan, buf: &mut Buffer) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_horizontal_border(
-    buf: &mut Buffer, x: u16, y: u16, widths: &[usize], table: &Table, left: &str, mid: &str, right: &str, fill: &str,
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    widths: &[usize],
+    table: &Table,
+    left: &str,
+    mid: &str,
+    right: &str,
+    fill: &str,
 ) {
     let mut cx = x;
     if table.border_left {
@@ -423,31 +517,58 @@ fn draw_horizontal_border(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_row<F>(
-    buf: &mut Buffer, x: u16, y: u16, widths: &[usize], height: usize, cell_lines: &[Vec<String>], style_for: F, table: &Table,
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    widths: &[usize],
+    height: usize,
+    cell_lines: &[Vec<String>],
+    style_for: F,
+    table: &Table,
 ) where
     F: Fn(usize) -> Style,
 {
     for line_idx in 0..height {
         let mut cx = x;
         if table.border_left {
-            buf.set_string(cx, y + line_idx as u16, table.border.left, table.border_style);
+            buf.set_string(
+                cx,
+                y + line_idx as u16,
+                table.border.left,
+                table.border_style,
+            );
             cx += 1;
         }
         for (col, width) in widths.iter().enumerate() {
             let style = style_for(col);
-            let content = cell_lines.get(col).and_then(|lines| lines.get(line_idx)).cloned().unwrap_or_default();
+            let content = cell_lines
+                .get(col)
+                .and_then(|lines| lines.get(line_idx))
+                .cloned()
+                .unwrap_or_default();
             let line = fit_to_width(&content, *width);
             let spans = vec![Span::styled(line, style)];
             buf.set_line(cx, y + line_idx as u16, &Line::from(spans), *width as u16);
             cx += *width as u16;
             if col + 1 < widths.len() && table.border_column {
-                buf.set_string(cx, y + line_idx as u16, table.border.left, table.border_style);
+                buf.set_string(
+                    cx,
+                    y + line_idx as u16,
+                    table.border.left,
+                    table.border_style,
+                );
                 cx += 1;
             }
         }
         if table.border_right {
-            buf.set_string(cx, y + line_idx as u16, table.border.right, table.border_style);
+            buf.set_string(
+                cx,
+                y + line_idx as u16,
+                table.border.right,
+                table.border_style,
+            );
         }
     }
 }
@@ -505,7 +626,11 @@ fn wrap_lines(text: &str, width: usize) -> Vec<String> {
         }
         out.push(fit_to_width(&current, width));
     }
-    if out.is_empty() { vec![String::new()] } else { out }
+    if out.is_empty() {
+        vec![String::new()]
+    } else {
+        out
+    }
 }
 
 fn truncate_lines(text: &str, width: usize, max_lines: usize) -> Vec<String> {
@@ -564,7 +689,11 @@ fn display_width(text: &str) -> usize {
 }
 
 fn max_line_width(text: &str) -> usize {
-    text.replace("\r\n", "\n").split('\n').map(display_width).max().unwrap_or(0)
+    text.replace("\r\n", "\n")
+        .split('\n')
+        .map(display_width)
+        .max()
+        .unwrap_or(0)
 }
 
 fn sum(values: &[usize]) -> usize {
@@ -576,7 +705,7 @@ fn median(values: &mut [usize]) -> usize {
         return 0;
     }
     values.sort_unstable();
-    if values.len() % 2 == 0 {
+    if values.len().is_multiple_of(2) {
         let mid = values.len() / 2;
         (values[mid - 1] + values[mid]) / 2
     } else {

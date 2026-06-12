@@ -1,4 +1,7 @@
-use std::{sync::atomic::{AtomicI64, Ordering}, time::{Duration, Instant}};
+use std::{
+    sync::atomic::{AtomicI64, Ordering},
+    time::{Duration, Instant},
+};
 
 static LAST_ID: AtomicI64 = AtomicI64::new(0);
 
@@ -49,30 +52,70 @@ impl Model {
         model
     }
 
-    pub fn id(&self) -> i64 { self.id }
-    pub fn start(&self) -> StartStopMsg { StartStopMsg { id: self.id, running: true } }
-    pub fn stop(&self) -> StartStopMsg { StartStopMsg { id: self.id, running: false } }
-    pub fn toggle(&self) -> StartStopMsg { StartStopMsg { id: self.id, running: !self.running } }
-    pub fn reset(&self) -> ResetMsg { ResetMsg { id: self.id } }
-    pub fn running(&self) -> bool { self.running }
-    pub fn elapsed(&self) -> Duration { self.elapsed }
-    pub fn view(&self) -> String { format_duration(self.elapsed) }
-    pub fn tick_msg(&self) -> TickMsg { TickMsg { id: self.id, tag: self.tag } }
-    pub fn next_tick_at(&self, now: Instant) -> Instant { now + self.interval }
+    pub fn id(&self) -> i64 {
+        self.id
+    }
+    pub fn start(&self) -> StartStopMsg {
+        StartStopMsg {
+            id: self.id,
+            running: true,
+        }
+    }
+    pub fn stop(&self) -> StartStopMsg {
+        StartStopMsg {
+            id: self.id,
+            running: false,
+        }
+    }
+    pub fn toggle(&self) -> StartStopMsg {
+        StartStopMsg {
+            id: self.id,
+            running: !self.running,
+        }
+    }
+    pub fn reset(&self) -> ResetMsg {
+        ResetMsg { id: self.id }
+    }
+    pub fn running(&self) -> bool {
+        self.running
+    }
+    pub fn elapsed(&self) -> Duration {
+        self.elapsed
+    }
+    pub fn view(&self) -> String {
+        format_duration(self.elapsed)
+    }
+    pub fn tick_msg(&self) -> TickMsg {
+        TickMsg {
+            id: self.id,
+            tag: self.tag,
+        }
+    }
+    pub fn next_tick_at(&self, now: Instant) -> Instant {
+        now + self.interval
+    }
 
     pub fn update_start_stop(&mut self, msg: StartStopMsg) {
-        if msg.id != self.id { return; }
+        if msg.id != self.id {
+            return;
+        }
         self.running = msg.running;
     }
 
     pub fn update_reset(&mut self, msg: ResetMsg) {
-        if msg.id != self.id { return; }
+        if msg.id != self.id {
+            return;
+        }
         self.elapsed = Duration::ZERO;
     }
 
     pub fn update_tick(&mut self, msg: TickMsg) -> bool {
-        if !self.running || msg.id != self.id { return false; }
-        if msg.tag > 0 && msg.tag != self.tag { return false; }
+        if !self.running || msg.id != self.id {
+            return false;
+        }
+        if msg.tag > 0 && msg.tag != self.tag {
+            return false;
+        }
         self.elapsed += self.interval;
         self.tag += 1;
         true
