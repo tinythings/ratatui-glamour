@@ -6,6 +6,7 @@ use ratatui::{
 use std::time::Duration;
 use std::{fs, path::PathBuf};
 
+use ratatui_glamour::table::{Column as DataColumn, Model as DataTable};
 use ratatui_glamour::widgets::{
     cursor::Model as Cursor,
     filepicker::Model as FilePicker,
@@ -443,6 +444,48 @@ fn list_set_filter_text_and_state_match_go_behavior() {
             .collect::<Vec<_>>(),
         vec!["bar".to_string(), "baz".to_string()]
     );
+}
+
+#[test]
+fn table_model_renders_selected_row() {
+    let mut table = DataTable::new(
+        vec![DataColumn::new("Rank", 6), DataColumn::new("City", 8)],
+        vec![
+            vec!["6".into(), "Mexico".into()],
+            vec!["7".into(), "Cairo".into()],
+        ],
+    );
+    table.focus();
+    table.set_size(20, 4);
+    table.set_cursor(1);
+    let lines = table.view();
+    assert_eq!(lines[0].to_string(), " Rank  City   ");
+    assert_eq!(lines[2].to_string(), " 7     Cairo  ");
+    assert_eq!(lines[2].spans[0].style.bg, table.styles.selected.bg);
+}
+
+#[test]
+fn table_model_truncates_with_ellipsis() {
+    let mut table = DataTable::new(
+        vec![DataColumn::new("City", 8)],
+        vec![vec!["Mexico City".into()]],
+    );
+    table.set_size(8, 3);
+    let lines = table.view();
+    assert_eq!(lines[1].to_string(), " Mexic… ");
+}
+
+#[test]
+fn table_model_moves_viewport_with_cursor() {
+    let mut table = DataTable::new(
+        vec![DataColumn::new("Rank", 6)],
+        (1..=6).map(|n| vec![n.to_string()]).collect(),
+    );
+    table.focus();
+    table.set_size(8, 3);
+    table.move_down(4);
+    assert_eq!(table.cursor(), 4);
+    assert_eq!(table.viewport.y_offset(), 3);
 }
 
 #[test]

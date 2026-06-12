@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crossterm::event::KeyEvent;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -10,6 +11,10 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::border::Border;
+use crate::widgets::{
+    key::{self, Binding},
+    viewport,
+};
 
 pub const HEADER_ROW: isize = -1;
 
@@ -719,4 +724,346 @@ fn bool_to_usize(value: bool) -> usize {
 
 fn bool_to_u16(value: bool) -> u16 {
     u16::from(value)
+}
+
+pub type Row = Vec<String>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Column {
+    pub title: String,
+    pub width: usize,
+}
+
+impl Column {
+    pub fn new(title: impl Into<String>, width: usize) -> Self {
+        Self {
+            title: title.into(),
+            width,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Styles {
+    pub header: Style,
+    pub cell: Style,
+    pub selected: Style,
+}
+
+impl Default for Styles {
+    fn default() -> Self {
+        Self {
+            header: Style::default().add_modifier(ratatui::style::Modifier::BOLD),
+            cell: Style::default(),
+            selected: Style::default()
+                .fg(ratatui::style::Color::Indexed(231))
+                .bg(ratatui::style::Color::Indexed(93))
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct KeyMap {
+    pub line_up: Binding,
+    pub line_down: Binding,
+    pub page_up: Binding,
+    pub page_down: Binding,
+    pub half_page_up: Binding,
+    pub half_page_down: Binding,
+    pub go_to_top: Binding,
+    pub go_to_bottom: Binding,
+}
+
+impl Default for KeyMap {
+    fn default() -> Self {
+        Self {
+            line_up: Binding::new([key::with_keys(&["up", "k"]), key::with_help("↑/k", "up")]),
+            line_down: Binding::new([
+                key::with_keys(&["down", "j"]),
+                key::with_help("↓/j", "down"),
+            ]),
+            page_up: Binding::new([
+                key::with_keys(&["b", "pgup"]),
+                key::with_help("b/pgup", "page up"),
+            ]),
+            page_down: Binding::new([
+                key::with_keys(&["f", "pgdown", "space"]),
+                key::with_help("f/pgdn", "page down"),
+            ]),
+            half_page_up: Binding::new([
+                key::with_keys(&["u", "ctrl+u"]),
+                key::with_help("u", "1/2 page up"),
+            ]),
+            half_page_down: Binding::new([
+                key::with_keys(&["d", "ctrl+d"]),
+                key::with_help("d", "1/2 page down"),
+            ]),
+            go_to_top: Binding::new([
+                key::with_keys(&["home", "g"]),
+                key::with_help("g/home", "top"),
+            ]),
+            go_to_bottom: Binding::new([
+                key::with_keys(&["end", "G"]),
+                key::with_help("G/end", "bottom"),
+            ]),
+        }
+    }
+}
+
+pub struct Model {
+    columns: Vec<Column>,
+    rows: Vec<Row>,
+    cursor: usize,
+    focus: bool,
+    width: usize,
+    height: usize,
+    pub styles: Styles,
+    pub key_map: KeyMap,
+    pub viewport: viewport::Model,
+    pub header_padding: usize,
+    pub cell_padding: usize,
+}
+
+impl Model {
+    pub fn new(columns: Vec<Column>, rows: Vec<Row>) -> Self {
+        let mut viewport = viewport::Model::new([]);
+        viewport.set_height(0);
+        viewport.set_width(0);
+        Self {
+            columns,
+            rows,
+            cursor: 0,
+            focus: false,
+            width: 0,
+            height: 0,
+            styles: Styles::default(),
+            key_map: KeyMap::default(),
+            viewport,
+            header_padding: 1,
+            cell_padding: 1,
+        }
+    }
+
+    pub fn columns(&self) -> &[Column] {
+        &self.columns
+    }
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+    pub fn focused(&self) -> bool {
+        self.focus
+    }
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn set_columns(&mut self, columns: Vec<Column>) {
+        self.columns = columns;
+        self.sync_viewport();
+    }
+
+    pub fn set_rows(&mut self, rows: Vec<Row>) {
+        self.rows = rows;
+        self.cursor = self.cursor.min(self.rows.len().saturating_sub(1));
+        self.sync_viewport();
+    }
+
+    pub fn set_cursor(&mut self, cursor: usize) {
+        self.cursor = cursor.min(self.rows.len().saturating_sub(1));
+        self.sync_viewport();
+        self.ensure_cursor_visible();
+    }
+
+    pub fn focus(&mut self) {
+        self.focus = true;
+        self.sync_viewport();
+    }
+
+    pub fn blur(&mut self) {
+        self.focus = false;
+        self.sync_viewport();
+    }
+
+    pub fn set_width(&mut self, width: usize) {
+        self.width = width;
+        self.viewport.set_width(width);
+        self.sync_viewport();
+    }
+
+    pub fn set_height(&mut self, height: usize) {
+        self.height = height;
+        self.viewport.set_height(self.body_height());
+        self.sync_viewport();
+        self.ensure_cursor_visible();
+    }
+
+    pub fn set_size(&mut self, width: usize, height: usize) {
+        self.width = width;
+        self.height = height;
+        self.viewport.set_width(width);
+        self.viewport.set_height(self.body_height());
+        self.sync_viewport();
+        self.ensure_cursor_visible();
+    }
+
+    pub fn selected_row(&self) -> Option<&Row> {
+        self.rows.get(self.cursor)
+    }
+
+    pub fn handle_key(&mut self, event: &KeyEvent) {
+        if !self.focus || self.rows.is_empty() {
+            return;
+        }
+
+        if key::matches(event, [&self.key_map.line_up]) {
+            self.move_up(1);
+        } else if key::matches(event, [&self.key_map.line_down]) {
+            self.move_down(1);
+        } else if key::matches(event, [&self.key_map.page_up]) {
+            self.move_up(self.body_height().max(1));
+        } else if key::matches(event, [&self.key_map.page_down]) {
+            self.move_down(self.body_height().max(1));
+        } else if key::matches(event, [&self.key_map.half_page_up]) {
+            self.move_up((self.body_height().max(1) / 2).max(1));
+        } else if key::matches(event, [&self.key_map.half_page_down]) {
+            self.move_down((self.body_height().max(1) / 2).max(1));
+        } else if key::matches(event, [&self.key_map.go_to_top]) {
+            self.set_cursor(0);
+        } else if key::matches(event, [&self.key_map.go_to_bottom]) {
+            self.set_cursor(self.rows.len().saturating_sub(1));
+        }
+    }
+
+    pub fn move_up(&mut self, n: usize) {
+        self.cursor = self.cursor.saturating_sub(n);
+        self.sync_viewport();
+        self.ensure_cursor_visible();
+    }
+
+    pub fn move_down(&mut self, n: usize) {
+        self.cursor = (self.cursor + n).min(self.rows.len().saturating_sub(1));
+        self.sync_viewport();
+        self.ensure_cursor_visible();
+    }
+
+    pub fn view(&self) -> Vec<Line<'static>> {
+        let mut out = Vec::new();
+        out.push(self.header_line());
+        let offset = self.viewport.y_offset();
+        let height = self.body_height();
+        for row in offset..(offset + height).min(self.rows.len()) {
+            out.push(self.render_row_line(row));
+        }
+        out
+    }
+
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        for (idx, line) in self
+            .view()
+            .into_iter()
+            .take(area.height as usize)
+            .enumerate()
+        {
+            buf.set_line(area.x, area.y + idx as u16, &line, area.width);
+        }
+    }
+
+    fn body_height(&self) -> usize {
+        self.height.saturating_sub(1)
+    }
+
+    fn sync_viewport(&mut self) {
+        self.viewport.set_height(self.body_height());
+        self.viewport.set_width(self.width);
+        let content = (0..self.rows.len())
+            .map(|row| self.render_row_line(row).to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.viewport.set_content(&content);
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        let height = self.body_height();
+        if height == 0 || self.rows.is_empty() {
+            self.viewport.set_y_offset(0);
+            return;
+        }
+        self.viewport.ensure_visible(self.cursor, 0, self.width);
+    }
+
+    fn header_line(&self) -> Line<'static> {
+        let mut spans = Vec::new();
+        for (idx, col) in self.columns.iter().enumerate() {
+            if idx > 0 {
+                spans.push(Span::raw(""));
+            }
+            spans.push(Span::styled(
+                padded_truncate(&col.title, col.width, self.header_padding),
+                self.styles.header,
+            ));
+        }
+        Line::from(spans)
+    }
+
+    fn render_row_line(&self, row_idx: usize) -> Line<'static> {
+        let row = &self.rows[row_idx];
+        let style = if row_idx == self.cursor {
+            self.styles.selected
+        } else {
+            self.styles.cell
+        };
+        let mut spans = Vec::new();
+        for (idx, col) in self.columns.iter().enumerate() {
+            if idx > 0 {
+                spans.push(Span::styled(String::new(), style));
+            }
+            let value = row.get(idx).map(String::as_str).unwrap_or("");
+            spans.push(Span::styled(
+                padded_truncate(value, col.width, self.cell_padding),
+                style,
+            ));
+        }
+        Line::from(spans)
+    }
+}
+
+fn padded_truncate(text: &str, width: usize, padding: usize) -> String {
+    let inner = width.saturating_sub(padding.saturating_mul(2));
+    let rendered = truncate_with_ellipsis(text, inner);
+    let mut out = String::new();
+    out.push_str(&" ".repeat(padding));
+    out.push_str(&fit_to_width(&rendered, inner));
+    out.push_str(&" ".repeat(padding));
+    out
+}
+
+fn truncate_with_ellipsis(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if display_width(text) <= width {
+        return text.to_string();
+    }
+    if width == 1 {
+        return "…".into();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+        if used + cw > width - 1 {
+            break;
+        }
+        out.push(ch);
+        used += cw;
+    }
+    out.push('…');
+    out
 }

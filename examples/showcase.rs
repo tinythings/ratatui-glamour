@@ -23,7 +23,7 @@ use ratatui_glamour::{
         centered_rect, gradient_rounded_panel_lines, place_with_pattern, render_classic_tabs_row,
         render_gradient_rounded_panel,
     },
-    table::{HEADER_ROW, Table},
+    table::{Column as TableColumn, Model as TableModel, Styles as TableModelStyles},
     tree::{Tree, TreeNode, rounded_enumerator},
     widgets::{
         filepicker::Model as WidgetFilePicker,
@@ -82,8 +82,7 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
 
 struct ShowcaseApp {
     tab: usize,
-    table_offset: usize,
-    table_wrap: bool,
+    table_model: TableModel,
     layer_cursor_x: u16,
     layer_cursor_y: u16,
     widgets_focus: usize,
@@ -217,10 +216,151 @@ impl Default for ShowcaseApp {
         widgets_progress.set_percent(0.64);
         let _ = widgets_progress.update(widgets_progress.frame_msg());
 
+        let mut table_model = TableModel::new(
+            vec![
+                TableColumn::new("Rank", 6),
+                TableColumn::new("City", 14),
+                TableColumn::new("Country", 12),
+                TableColumn::new("Population", 14),
+            ],
+            vec![
+                vec![
+                    "6".into(),
+                    "Mexico City".into(),
+                    "Mexico".into(),
+                    "22,085,140".into(),
+                ],
+                vec![
+                    "7".into(),
+                    "Cairo".into(),
+                    "Egypt".into(),
+                    "21,750,020".into(),
+                ],
+                vec![
+                    "8".into(),
+                    "Beijing".into(),
+                    "China".into(),
+                    "21,333,332".into(),
+                ],
+                vec![
+                    "9".into(),
+                    "Mumbai".into(),
+                    "India".into(),
+                    "20,961,472".into(),
+                ],
+                vec![
+                    "10".into(),
+                    "Osaka".into(),
+                    "Japan".into(),
+                    "19,059,856".into(),
+                ],
+                vec![
+                    "11".into(),
+                    "Chongqing".into(),
+                    "China".into(),
+                    "16,874,740".into(),
+                ],
+                vec![
+                    "12".into(),
+                    "Karachi".into(),
+                    "Pakistan".into(),
+                    "16,839,950".into(),
+                ],
+                vec![
+                    "13".into(),
+                    "Istanbul".into(),
+                    "Turkey".into(),
+                    "15,636,243".into(),
+                ],
+                vec![
+                    "14".into(),
+                    "Buenos Aires".into(),
+                    "Argentina".into(),
+                    "15,490,415".into(),
+                ],
+                vec![
+                    "15".into(),
+                    "Kolkata".into(),
+                    "India".into(),
+                    "15,133,888".into(),
+                ],
+                vec![
+                    "16".into(),
+                    "Lagos".into(),
+                    "Nigeria".into(),
+                    "15,109,072".into(),
+                ],
+                vec![
+                    "17".into(),
+                    "Kinshasa".into(),
+                    "DR Congo".into(),
+                    "14,970,000".into(),
+                ],
+                vec![
+                    "18".into(),
+                    "Manila".into(),
+                    "Philippines".into(),
+                    "14,406,059".into(),
+                ],
+                vec![
+                    "19".into(),
+                    "Tianjin".into(),
+                    "China".into(),
+                    "14,011,828".into(),
+                ],
+                vec![
+                    "20".into(),
+                    "Guangzhou".into(),
+                    "China".into(),
+                    "13,964,637".into(),
+                ],
+                vec![
+                    "21".into(),
+                    "Rio de Janeiro".into(),
+                    "Brazil".into(),
+                    "13,728,000".into(),
+                ],
+                vec![
+                    "22".into(),
+                    "Lahore".into(),
+                    "Pakistan".into(),
+                    "13,541,764".into(),
+                ],
+                vec![
+                    "23".into(),
+                    "Bangalore".into(),
+                    "India".into(),
+                    "13,193,035".into(),
+                ],
+                vec![
+                    "24".into(),
+                    "Shenzhen".into(),
+                    "China".into(),
+                    "12,831,330".into(),
+                ],
+                vec![
+                    "25".into(),
+                    "Moscow".into(),
+                    "Russia".into(),
+                    "12,640,818".into(),
+                ],
+            ],
+        );
+        table_model.styles = TableModelStyles {
+            header: Style::default()
+                .fg(Color::Indexed(252))
+                .add_modifier(Modifier::BOLD),
+            cell: Style::default().fg(Color::Indexed(250)),
+            selected: Style::default()
+                .fg(Color::Indexed(231))
+                .bg(Color::Indexed(93)),
+        };
+        table_model.focus();
+        table_model.set_cursor(6);
+
         Self {
             tab: 0,
-            table_offset: 0,
-            table_wrap: false,
+            table_model,
             layer_cursor_x: 0,
             layer_cursor_y: 0,
             widgets_focus: 0,
@@ -287,19 +427,23 @@ impl ShowcaseApp {
             return;
         }
 
+        if self.tab == 3 {
+            self.table_model.handle_key(&key);
+            return;
+        }
+
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.up(),
             KeyCode::Down | KeyCode::Char('j') => self.down(),
             KeyCode::Left => self.left(),
             KeyCode::Right => self.right(),
-            KeyCode::Char('w') => self.table_wrap = !self.table_wrap,
             _ => {}
         }
     }
 
     fn up(&mut self) {
         if self.tab == 3 {
-            self.table_offset = self.table_offset.saturating_sub(1);
+            self.table_model.move_up(1);
         } else if self.tab == 4 {
             self.layer_cursor_y = self.layer_cursor_y.saturating_sub(1);
         }
@@ -307,7 +451,7 @@ impl ShowcaseApp {
 
     fn down(&mut self) {
         if self.tab == 3 {
-            self.table_offset = self.table_offset.saturating_add(1);
+            self.table_model.move_down(1);
         } else if self.tab == 4 {
             self.layer_cursor_y = self.layer_cursor_y.saturating_add(1);
         }
@@ -473,7 +617,7 @@ fn render_app(frame: &mut Frame, app: &mut ShowcaseApp) {
     }
 
     let help = match app.tab {
-        3 => "Shift+←/→ pages  ↑/↓ table scroll  w wrap  q quit",
+        3 => "Shift+←/→ pages  ↑/↓/pgup/pgdn table  g/G home/end  q quit",
         4 => "Shift+←/→ pages  ←/→/↑/↓ move hit cursor  q quit",
         6 => "Tab/Shift-Tab widgets  Shift+←/→ pages  +/- progress  q quit",
         _ => "Shift+←/→ pages  q quit",
@@ -729,7 +873,7 @@ fn render_tree_list(area: Rect, frame: &mut Frame) {
     (&tree).render(tree_inner, frame.buffer_mut());
 }
 
-fn render_table(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
+fn render_table(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
     let block = Block::default()
         .title(" Table ")
         .borders(Borders::ALL)
@@ -738,70 +882,80 @@ fn render_table(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
     let inner = block.inner(area);
     block.render(area, frame.buffer_mut());
 
-    let table = Table::new()
-        .headers(["Module", "Status", "Notes"])
-        .rows([
-            [
-                "border/mod.rs",
-                "done",
-                "Preset catalog plus adapter into ratatui border sets.",
-            ],
-            [
-                "color.rs",
-                "done",
-                "1D and 2D blend helpers for candy-ramp gradients.",
-            ],
-            [
-                "tree/mod.rs",
-                "done",
-                "Multiline values now continue under the correct branch prefix.",
-            ],
-            [
-                "list/mod.rs",
-                "done",
-                "Arabic, roman, bullets, nested items, Unicode-safe output.",
-            ],
-            [
-                "ansi.rs",
-                "done",
-                "ANSI exporter preserves fg/bg and wide icon widths for demos.",
-            ],
-            [
-                "table/mod.rs",
-                "live",
-                "Width planning, median-based shrink, overflow row, custom border grid renderer.",
-            ],
-            [
-                "showcase.rs",
-                "live",
-                "Interactive gallery instead of dumping a buffer and dying instantly.",
-            ],
-            [
-                "next",
-                "pending",
-                "Expose more style/padding semantics once higher-level glam widgets settle.",
-            ],
+    let card = centered_rect(inner, inner.width.min(84), inner.height.min(20));
+    let [title_area, divider_area, body_area]: [Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
-        .border(Border::double())
-        .border_style(Style::default().fg(Color::Indexed(213)))
-        .style_fn(|row, col| match row {
-            HEADER_ROW => Style::default()
-                .fg(Color::Indexed(16))
-                .bg(Color::Indexed(219))
+        .split(card)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            "Table",
+            Style::default()
+                .fg(Color::Indexed(255))
                 .add_modifier(Modifier::BOLD),
-            _ if col == 1 => {
-                let tone = match row {
-                    0..=4 => Color::Indexed(118),
-                    5..=6 => Color::Indexed(81),
-                    _ => Color::Indexed(220),
-                };
-                Style::default().fg(tone).add_modifier(Modifier::BOLD)
-            }
-            _ => Style::default().fg(Color::Indexed(255)),
-        })
-        .y_offset(app.table_offset)
-        .wrap(app.table_wrap);
-    (&table).render(inner, frame.buffer_mut());
+        )),
+        title_area,
+    );
+    draw_horizontal_rule(
+        frame.buffer_mut(),
+        divider_area.x,
+        divider_area.y,
+        divider_area.width,
+        Color::Indexed(238),
+    );
+
+    let table_frame = Rect::new(
+        body_area.x + 6,
+        body_area.y + 1,
+        body_area.width.saturating_sub(12),
+        body_area.height.saturating_sub(2),
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        body_area,
+        Style::default().bg(Color::Indexed(235)),
+    );
+    draw_table_frame(frame.buffer_mut(), table_frame);
+
+    let table_area = Rect::new(
+        table_frame.x + 1,
+        table_frame.y + 1,
+        table_frame.width.saturating_sub(2),
+        table_frame.height.saturating_sub(2),
+    );
+    let table_content_area = Rect::new(
+        table_area.x,
+        table_area.y,
+        table_area.width.saturating_sub(1),
+        table_area.height,
+    );
+    let table_scrollbar_area = Rect::new(
+        table_content_area.right(),
+        table_area.y,
+        table_area.width.saturating_sub(table_content_area.width),
+        table_area.height,
+    );
+    app.table_model.set_size(
+        table_content_area.width as usize,
+        table_content_area.height as usize,
+    );
+    app.table_model
+        .render(table_content_area, frame.buffer_mut());
+    render_dark_scrollbar(
+        frame.buffer_mut(),
+        table_scrollbar_area,
+        app.table_model.viewport.y_offset(),
+        app.table_model.height().saturating_sub(1),
+        app.table_model.rows().len(),
+    );
 }
 
 fn render_layers(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
@@ -1549,6 +1703,32 @@ fn draw_horizontal_rule(
     for dx in 0..width {
         buf.set_string(x + dx, y, "─", Style::default().fg(color));
     }
+}
+
+fn draw_table_frame(buf: &mut ratatui::buffer::Buffer, area: Rect) {
+    if area.width < 2 || area.height < 2 {
+        return;
+    }
+    let style = Style::default()
+        .fg(Color::Indexed(239))
+        .bg(Color::Indexed(235));
+    for x in area.x + 1..area.right().saturating_sub(1) {
+        buf.set_string(x, area.y, "─", style);
+        buf.set_string(x, area.bottom().saturating_sub(1), "─", style);
+    }
+    for y in area.y + 1..area.bottom().saturating_sub(1) {
+        buf.set_string(area.x, y, "│", style);
+        buf.set_string(area.right().saturating_sub(1), y, "│", style);
+    }
+    buf.set_string(area.x, area.y, "┌", style);
+    buf.set_string(area.right().saturating_sub(1), area.y, "┐", style);
+    buf.set_string(area.x, area.bottom().saturating_sub(1), "└", style);
+    buf.set_string(
+        area.right().saturating_sub(1),
+        area.bottom().saturating_sub(1),
+        "┘",
+        style,
+    );
 }
 
 fn fill_rect(buf: &mut ratatui::buffer::Buffer, area: Rect, style: Style) {
