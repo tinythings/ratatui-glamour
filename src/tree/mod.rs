@@ -22,7 +22,11 @@ pub struct TreeNode {
 
 impl TreeNode {
     pub fn new(value: impl Into<String>) -> Self {
-        Self { value: value.into(), hidden: false, children: Vec::new() }
+        Self {
+            value: value.into(),
+            hidden: false,
+            children: Vec::new(),
+        }
     }
 
     pub fn hidden(mut self, hidden: bool) -> Self {
@@ -54,15 +58,27 @@ impl TreeNode {
 }
 
 pub fn default_enumerator(children: &[TreeNode], index: usize) -> String {
-    if index + 1 == children.len() { "└──".into() } else { "├──".into() }
+    if index + 1 == children.len() {
+        "└──".into()
+    } else {
+        "├──".into()
+    }
 }
 
 pub fn rounded_enumerator(children: &[TreeNode], index: usize) -> String {
-    if index + 1 == children.len() { "╰──".into() } else { "├──".into() }
+    if index + 1 == children.len() {
+        "╰──".into()
+    } else {
+        "├──".into()
+    }
 }
 
 pub fn default_indenter(children: &[TreeNode], index: usize) -> String {
-    if index + 1 == children.len() { "   ".into() } else { "│  ".into() }
+    if index + 1 == children.len() {
+        "   ".into()
+    } else {
+        "│  ".into()
+    }
 }
 
 fn default_prefix_style(_: &[TreeNode], _: usize) -> Style {
@@ -203,22 +219,36 @@ impl Tree {
         if let Some(root) = &self.root
             && !root.is_empty()
         {
-            out.push(Line::styled(pad_to_width(root.clone(), self.width), self.root_style));
+            out.push(Line::styled(
+                pad_to_width(root.clone(), self.width),
+                self.root_style,
+            ));
         }
 
         self.render_nodes(&self.children, String::new(), &mut out);
         out
     }
 
-    fn render_nodes(&self, nodes: &[TreeNode], inherited_prefix: String, out: &mut Vec<Line<'static>>) {
+    fn render_nodes(
+        &self,
+        nodes: &[TreeNode],
+        inherited_prefix: String,
+        out: &mut Vec<Line<'static>>,
+    ) {
         let visible: Vec<&TreeNode> = nodes.iter().filter(|node| !node.hidden).collect();
         if visible.is_empty() {
             return;
         }
 
         let siblings: Vec<TreeNode> = visible.iter().map(|node| (*node).clone()).collect();
-        let prefixes: Vec<String> = (0..siblings.len()).map(|idx| (self.enumerator)(&siblings, idx)).collect();
-        let max_prefix_width = prefixes.iter().map(|text| UnicodeWidthStr::width(text.as_str())).max().unwrap_or(0);
+        let prefixes: Vec<String> = (0..siblings.len())
+            .map(|idx| (self.enumerator)(&siblings, idx))
+            .collect();
+        let max_prefix_width = prefixes
+            .iter()
+            .map(|text| UnicodeWidthStr::width(text.as_str()))
+            .max()
+            .unwrap_or(0);
 
         for (idx, node) in visible.iter().enumerate() {
             let enum_text = prefixes[idx].clone();
@@ -226,12 +256,15 @@ impl Tree {
             let enum_style = (self.enumerator_style)(&siblings, idx);
             let indent_style = (self.indenter_style)(&siblings, idx);
             let item_style = (self.item_style)(&siblings, idx);
-            let prefix_pad = max_prefix_width.saturating_sub(UnicodeWidthStr::width(enum_text.as_str()));
+            let prefix_pad =
+                max_prefix_width.saturating_sub(UnicodeWidthStr::width(enum_text.as_str()));
 
             let content_width = self
                 .width
                 .map(|width| {
-                    let prefix_width = UnicodeWidthStr::width(inherited_prefix.as_str()) + prefix_pad + UnicodeWidthStr::width(enum_text.as_str());
+                    let prefix_width = UnicodeWidthStr::width(inherited_prefix.as_str())
+                        + prefix_pad
+                        + UnicodeWidthStr::width(enum_text.as_str());
                     width as usize - prefix_width.min(width as usize)
                 })
                 .unwrap_or(usize::MAX);
@@ -255,7 +288,11 @@ impl Tree {
             }
 
             if !node.children.is_empty() {
-                self.render_nodes(&node.children, format!("{inherited_prefix}{indent_text}"), out);
+                self.render_nodes(
+                    &node.children,
+                    format!("{inherited_prefix}{indent_text}"),
+                    out,
+                );
             }
         }
     }
@@ -276,12 +313,23 @@ impl Widget for &Tree {
 }
 
 fn styled_line(parts: Vec<(String, Style)>) -> Line<'static> {
-    Line::from(parts.into_iter().map(|(text, style)| Span::styled(text, style)).collect::<Vec<_>>())
+    Line::from(
+        parts
+            .into_iter()
+            .map(|(text, style)| Span::styled(text, style))
+            .collect::<Vec<_>>(),
+    )
 }
 
-fn pad_segments_to_width(mut parts: Vec<(String, Style)>, width: Option<u16>) -> Vec<(String, Style)> {
+fn pad_segments_to_width(
+    mut parts: Vec<(String, Style)>,
+    width: Option<u16>,
+) -> Vec<(String, Style)> {
     if let Some(width) = width {
-        let used = parts.iter().map(|(text, _)| UnicodeWidthStr::width(text.as_str())).sum::<usize>();
+        let used = parts
+            .iter()
+            .map(|(text, _)| UnicodeWidthStr::width(text.as_str()))
+            .sum::<usize>();
         if used < width as usize {
             let style = parts.last().map(|(_, style)| *style).unwrap_or_default();
             parts.push((" ".repeat(width as usize - used), style));
@@ -322,5 +370,9 @@ fn wrap_value(text: &str, width: usize) -> Vec<String> {
         out.push(current);
     }
 
-    if out.is_empty() { vec![String::new()] } else { out }
+    if out.is_empty() {
+        vec![String::new()]
+    } else {
+        out
+    }
 }

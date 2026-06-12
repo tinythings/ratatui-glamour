@@ -1,6 +1,12 @@
-use std::{io, time::Duration};
+use std::{
+    env, io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -13,12 +19,30 @@ use ratatui_glamour::{
     canvas::{Compositor, Layer},
     color::{blend_1d, blend_2d},
     list::{List, ListItem, arabic, bullet},
-    surface::{centered_rect, gradient_rounded_panel_lines, place_with_pattern, render_classic_tabs_row, render_gradient_rounded_panel},
-    table::{HEADER_ROW, Table},
+    surface::{
+        centered_rect, gradient_rounded_panel_lines, place_with_pattern, render_classic_tabs_row,
+        render_gradient_rounded_panel,
+    },
+    table::{Column as TableColumn, Model as TableModel, Styles as TableModelStyles},
     tree::{Tree, TreeNode, rounded_enumerator},
+    widgets::{
+        filepicker::Model as WidgetFilePicker,
+        list::{DefaultDelegate as WidgetListDelegate, DefaultListItem, Model as WidgetList},
+        progress::Model as WidgetProgress,
+        textarea::Model as WidgetTextArea,
+        textinput::Model as WidgetTextInput,
+    },
 };
 
-const TAB_TITLES: [&str; 6] = ["Gradients", "Borders", "Tree + List", "Table", "Layers", "Layout"];
+const TAB_TITLES: [&str; 7] = [
+    "Gradients",
+    "Borders",
+    "Tree + List",
+    "Table",
+    "Layers",
+    "Layout",
+    "Widgets",
+];
 const LAYOUT_WIDTH: u16 = 96;
 const LAYOUT_HEIGHT: u16 = 52;
 
@@ -32,20 +56,23 @@ fn main() -> io::Result<()> {
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
     let mut app = ShowcaseApp::default();
     loop {
-        terminal.draw(|frame| render_app(frame, &app))?;
-        if event::poll(Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => break,
-                KeyCode::Tab | KeyCode::Char('l') => app.next_tab(),
-                KeyCode::BackTab | KeyCode::Char('h') => app.prev_tab(),
-                KeyCode::Up | KeyCode::Char('k') => app.up(),
-                KeyCode::Down | KeyCode::Char('j') => app.down(),
-                KeyCode::Left => app.left(),
-                KeyCode::Right => app.right(),
-                KeyCode::Char('w') => app.table_wrap = !app.table_wrap,
+        app.tick();
+        terminal.draw(|frame| render_app(frame, &mut app))?;
+        if event::poll(Duration::from_millis(100))? {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    if app.handle_widgets_key(key) {
+                        continue;
+                    }
+                    if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+                        break;
+                    }
+                    app.handle_global_key(key);
+                }
+                Event::Mouse(mouse) => {
+                    let area: Rect = terminal.size()?.into();
+                    app.handle_mouse(mouse, area);
+                }
                 _ => {}
             }
         }
@@ -53,16 +80,323 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
     Ok(())
 }
 
-#[derive(Default)]
 struct ShowcaseApp {
     tab: usize,
-    table_offset: usize,
-    table_wrap: bool,
+    table_model: TableModel,
     layer_cursor_x: u16,
     layer_cursor_y: u16,
+    widgets_focus: usize,
+    widgets_input: WidgetTextInput,
+    widgets_textarea: WidgetTextArea,
+    widgets_list: WidgetList<DefaultListItem, WidgetListDelegate>,
+    widgets_picker: WidgetFilePicker,
+    widgets_picker_root: PathBuf,
+    widgets_progress: WidgetProgress,
+}
+
+impl Default for ShowcaseApp {
+    fn default() -> Self {
+        let mut widgets_input = WidgetTextInput::new();
+        widgets_input.focus();
+        widgets_input.placeholder = "type, delete, move, suggest".to_string();
+        widgets_input.show_suggestions = true;
+        widgets_input.set_suggestions(&[
+            "ratatui".to_string(),
+            "ratatui-glamour".to_string(),
+            "bubble widget port".to_string(),
+        ]);
+
+        let mut widgets_textarea = WidgetTextArea::new();
+        widgets_textarea.placeholder = "Tell me a story.".to_string();
+        widgets_textarea.set_height(8);
+        widgets_textarea.set_width(28);
+        widgets_textarea.prompt = "│ ".to_string();
+        widgets_textarea.set_value("Walkin' fast, faces pass\nAnd I'm homebound\nStarin' blankly ahead\nJust makin' my way\nMakin' a way through");
+        let mut textarea_styles = widgets_textarea.styles().clone();
+        textarea_styles.focused.text = Style::default()
+            .fg(Color::Indexed(252))
+            .bg(Color::Indexed(234));
+        textarea_styles.focused.cursor_line = Style::default()
+            .fg(Color::Indexed(252))
+            .bg(Color::Indexed(236));
+        textarea_styles.focused.line_number = Style::default()
+            .fg(Color::Indexed(239))
+            .bg(Color::Indexed(234));
+        textarea_styles.focused.cursor_line_number = Style::default()
+            .fg(Color::Indexed(241))
+            .bg(Color::Indexed(236));
+        textarea_styles.focused.prompt = Style::default()
+            .fg(Color::Indexed(248))
+            .bg(Color::Indexed(234));
+        textarea_styles.focused.placeholder = Style::default()
+            .fg(Color::Indexed(245))
+            .bg(Color::Indexed(234));
+        textarea_styles.focused.end_of_buffer = Style::default()
+            .fg(Color::Indexed(236))
+            .bg(Color::Indexed(234));
+        textarea_styles.blurred.text = Style::default()
+            .fg(Color::Indexed(248))
+            .bg(Color::Indexed(234));
+        textarea_styles.blurred.cursor_line = Style::default()
+            .fg(Color::Indexed(248))
+            .bg(Color::Indexed(235));
+        textarea_styles.blurred.line_number = Style::default()
+            .fg(Color::Indexed(238))
+            .bg(Color::Indexed(234));
+        textarea_styles.blurred.cursor_line_number = Style::default()
+            .fg(Color::Indexed(240))
+            .bg(Color::Indexed(235));
+        textarea_styles.blurred.prompt = Style::default()
+            .fg(Color::Indexed(244))
+            .bg(Color::Indexed(234));
+        textarea_styles.blurred.placeholder = Style::default()
+            .fg(Color::Indexed(243))
+            .bg(Color::Indexed(234));
+        textarea_styles.blurred.end_of_buffer = Style::default()
+            .fg(Color::Indexed(235))
+            .bg(Color::Indexed(234));
+        textarea_styles.cursor.style = Style::default()
+            .fg(Color::Indexed(255))
+            .bg(Color::Indexed(252));
+        widgets_textarea.set_styles(textarea_styles);
+
+        let mut widgets_list = WidgetList::new(
+            vec![
+                DefaultListItem {
+                    title: "Nightly build".into(),
+                    description: "musl module matrix is green again".into(),
+                    filter_value: "nightly build musl module matrix".into(),
+                },
+                DefaultListItem {
+                    title: "Docs pass".into(),
+                    description: "widgets README synced with examples".into(),
+                    filter_value: "docs pass widgets readme examples".into(),
+                },
+                DefaultListItem {
+                    title: "Palette review".into(),
+                    description: "dark defaults, marmalade accents, calmer chrome".into(),
+                    filter_value: "palette review dark defaults accents".into(),
+                },
+                DefaultListItem {
+                    title: "Release prep".into(),
+                    description: "one last cargo check before tagging".into(),
+                    filter_value: "release prep cargo check tagging".into(),
+                },
+            ],
+            WidgetListDelegate::new(),
+            26,
+            12,
+        );
+        widgets_list.title = "Queue".into();
+        widgets_list.item_name_singular = "entry".into();
+        widgets_list.item_name_plural = "entries".into();
+
+        let widgets_picker_root = home_directory();
+        let mut widgets_picker = WidgetFilePicker::new();
+        widgets_picker.current_directory = widgets_picker_root.clone();
+        widgets_picker.dir_allowed = true;
+        widgets_picker.styles.cursor = Style::default().fg(Color::Rgb(90, 86, 224));
+        widgets_picker.styles.directory = Style::default().fg(Color::Rgb(112, 92, 255));
+        widgets_picker.styles.file = Style::default().fg(Color::Indexed(252));
+        widgets_picker.styles.permission = Style::default().fg(Color::Indexed(241));
+        widgets_picker.styles.file_size = Style::default().fg(Color::Indexed(241));
+        widgets_picker.styles.selected = Style::default()
+            .fg(Color::Indexed(213))
+            .add_modifier(Modifier::BOLD);
+        widgets_picker.styles.disabled_selected = Style::default().fg(Color::Indexed(247));
+        let _ = widgets_picker.read_dir();
+
+        let mut widgets_progress = WidgetProgress::new([]);
+        widgets_progress.set_width(34);
+        widgets_progress.full = '▌';
+        widgets_progress.empty = '░';
+        widgets_progress.empty_style = Style::default().fg(Color::Rgb(42, 42, 42));
+        widgets_progress.percentage_style = Style::default().fg(Color::Indexed(250));
+        widgets_progress.set_colors(vec![Color::Rgb(90, 86, 224), Color::Rgb(238, 111, 248)]);
+        widgets_progress.set_percent(0.64);
+        let _ = widgets_progress.update(widgets_progress.frame_msg());
+
+        let mut table_model = TableModel::new(
+            vec![
+                TableColumn::new("Rank", 6),
+                TableColumn::new("City", 14),
+                TableColumn::new("Country", 12),
+                TableColumn::new("Population", 14),
+            ],
+            vec![
+                vec![
+                    "6".into(),
+                    "Mexico City".into(),
+                    "Mexico".into(),
+                    "22,085,140".into(),
+                ],
+                vec![
+                    "7".into(),
+                    "Cairo".into(),
+                    "Egypt".into(),
+                    "21,750,020".into(),
+                ],
+                vec![
+                    "8".into(),
+                    "Beijing".into(),
+                    "China".into(),
+                    "21,333,332".into(),
+                ],
+                vec![
+                    "9".into(),
+                    "Mumbai".into(),
+                    "India".into(),
+                    "20,961,472".into(),
+                ],
+                vec![
+                    "10".into(),
+                    "Osaka".into(),
+                    "Japan".into(),
+                    "19,059,856".into(),
+                ],
+                vec![
+                    "11".into(),
+                    "Chongqing".into(),
+                    "China".into(),
+                    "16,874,740".into(),
+                ],
+                vec![
+                    "12".into(),
+                    "Karachi".into(),
+                    "Pakistan".into(),
+                    "16,839,950".into(),
+                ],
+                vec![
+                    "13".into(),
+                    "Istanbul".into(),
+                    "Turkey".into(),
+                    "15,636,243".into(),
+                ],
+                vec![
+                    "14".into(),
+                    "Buenos Aires".into(),
+                    "Argentina".into(),
+                    "15,490,415".into(),
+                ],
+                vec![
+                    "15".into(),
+                    "Kolkata".into(),
+                    "India".into(),
+                    "15,133,888".into(),
+                ],
+                vec![
+                    "16".into(),
+                    "Lagos".into(),
+                    "Nigeria".into(),
+                    "15,109,072".into(),
+                ],
+                vec![
+                    "17".into(),
+                    "Kinshasa".into(),
+                    "DR Congo".into(),
+                    "14,970,000".into(),
+                ],
+                vec![
+                    "18".into(),
+                    "Manila".into(),
+                    "Philippines".into(),
+                    "14,406,059".into(),
+                ],
+                vec![
+                    "19".into(),
+                    "Tianjin".into(),
+                    "China".into(),
+                    "14,011,828".into(),
+                ],
+                vec![
+                    "20".into(),
+                    "Guangzhou".into(),
+                    "China".into(),
+                    "13,964,637".into(),
+                ],
+                vec![
+                    "21".into(),
+                    "Rio de Janeiro".into(),
+                    "Brazil".into(),
+                    "13,728,000".into(),
+                ],
+                vec![
+                    "22".into(),
+                    "Lahore".into(),
+                    "Pakistan".into(),
+                    "13,541,764".into(),
+                ],
+                vec![
+                    "23".into(),
+                    "Bangalore".into(),
+                    "India".into(),
+                    "13,193,035".into(),
+                ],
+                vec![
+                    "24".into(),
+                    "Shenzhen".into(),
+                    "China".into(),
+                    "12,831,330".into(),
+                ],
+                vec![
+                    "25".into(),
+                    "Moscow".into(),
+                    "Russia".into(),
+                    "12,640,818".into(),
+                ],
+            ],
+        );
+        table_model.styles = TableModelStyles {
+            header: Style::default()
+                .fg(Color::Indexed(252))
+                .add_modifier(Modifier::BOLD),
+            cell: Style::default().fg(Color::Indexed(250)),
+            selected: Style::default()
+                .fg(Color::Indexed(231))
+                .bg(Color::Indexed(93)),
+        };
+        table_model.focus();
+        table_model.set_cursor(6);
+
+        Self {
+            tab: 0,
+            table_model,
+            layer_cursor_x: 0,
+            layer_cursor_y: 0,
+            widgets_focus: 0,
+            widgets_input,
+            widgets_textarea,
+            widgets_list,
+            widgets_picker,
+            widgets_picker_root,
+            widgets_progress,
+        }
+    }
 }
 
 impl ShowcaseApp {
+    fn set_widgets_focus(&mut self, focus: usize) {
+        self.widgets_focus = focus % 4;
+        if self.widgets_focus == 0 {
+            self.widgets_input.focus();
+            self.widgets_textarea.blur();
+        } else if self.widgets_focus == 1 {
+            self.widgets_input.blur();
+            self.widgets_textarea.focus();
+        } else {
+            self.widgets_input.blur();
+            self.widgets_textarea.blur();
+        }
+    }
+
+    fn next_widget_focus(&mut self) {
+        self.set_widgets_focus(self.widgets_focus + 1);
+    }
+
+    fn prev_widget_focus(&mut self) {
+        self.set_widgets_focus((self.widgets_focus + 3) % 4);
+    }
+
     fn next_tab(&mut self) {
         self.tab = (self.tab + 1) % TAB_TITLES.len();
     }
@@ -74,22 +408,42 @@ impl ShowcaseApp {
     fn left(&mut self) {
         if self.tab == 4 {
             self.layer_cursor_x = self.layer_cursor_x.saturating_sub(1);
-        } else {
-            self.prev_tab();
         }
     }
 
     fn right(&mut self) {
         if self.tab == 4 {
             self.layer_cursor_x = self.layer_cursor_x.saturating_add(1);
-        } else {
-            self.next_tab();
+        }
+    }
+
+    fn handle_global_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::SHIFT) {
+            match key.code {
+                KeyCode::Left => self.prev_tab(),
+                KeyCode::Right => self.next_tab(),
+                _ => {}
+            }
+            return;
+        }
+
+        if self.tab == 3 {
+            self.table_model.handle_key(&key);
+            return;
+        }
+
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.up(),
+            KeyCode::Down | KeyCode::Char('j') => self.down(),
+            KeyCode::Left => self.left(),
+            KeyCode::Right => self.right(),
+            _ => {}
         }
     }
 
     fn up(&mut self) {
         if self.tab == 3 {
-            self.table_offset = self.table_offset.saturating_sub(1);
+            self.table_model.move_up(1);
         } else if self.tab == 4 {
             self.layer_cursor_y = self.layer_cursor_y.saturating_sub(1);
         }
@@ -97,14 +451,99 @@ impl ShowcaseApp {
 
     fn down(&mut self) {
         if self.tab == 3 {
-            self.table_offset = self.table_offset.saturating_add(1);
+            self.table_model.move_down(1);
         } else if self.tab == 4 {
             self.layer_cursor_y = self.layer_cursor_y.saturating_add(1);
         }
     }
+
+    fn handle_widgets_key(&mut self, key: KeyEvent) -> bool {
+        if self.tab != 6 {
+            return false;
+        }
+
+        if key.modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(key.code, KeyCode::Left | KeyCode::Right)
+        {
+            return false;
+        }
+
+        match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => return false,
+            _ => {}
+        }
+
+        match key.code {
+            KeyCode::Tab => {
+                self.next_widget_focus();
+                return true;
+            }
+            KeyCode::BackTab => {
+                self.prev_widget_focus();
+                return true;
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                self.widgets_progress.incr_percent(0.05);
+                let _ = self
+                    .widgets_progress
+                    .update(self.widgets_progress.frame_msg());
+                return true;
+            }
+            KeyCode::Char('-') => {
+                self.widgets_progress.decr_percent(0.05);
+                let _ = self
+                    .widgets_progress
+                    .update(self.widgets_progress.frame_msg());
+                return true;
+            }
+            _ => {}
+        }
+
+        match self.widgets_focus {
+            0 => self.widgets_input.handle_key(&key),
+            1 => self.widgets_textarea.handle_key(&key),
+            2 => self.widgets_list.handle_key(&key),
+            3 => {
+                let _ = self.widgets_picker.handle_key(&key);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn tick(&mut self) {
+        if self.tab == 6 {
+            let _ = self
+                .widgets_progress
+                .update(self.widgets_progress.frame_msg());
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
+        if self.tab != 6 {
+            return;
+        }
+
+        let Some(body_area) = widgets_demo_body_area(area) else {
+            return;
+        };
+        let Some(textarea_area) = widgets_textarea_content_area(body_area) else {
+            return;
+        };
+        let point = (mouse.column, mouse.row);
+        if !rect_contains(textarea_area, point) {
+            return;
+        }
+
+        match mouse.kind {
+            MouseEventKind::ScrollDown => self.widgets_textarea.viewport.scroll_down(3),
+            MouseEventKind::ScrollUp => self.widgets_textarea.viewport.scroll_up(3),
+            _ => {}
+        }
+    }
 }
 
-fn render_app(frame: &mut Frame, app: &ShowcaseApp) {
+fn render_app(frame: &mut Frame, app: &mut ShowcaseApp) {
     let area = frame.area();
 
     if app.tab == 5 {
@@ -116,9 +555,22 @@ fn render_app(frame: &mut Frame, app: &ShowcaseApp) {
 
     let outer = Block::default()
         .title(Line::from(vec![
-            Span::styled("⚡ ", Style::default().fg(Color::Indexed(219)).add_modifier(Modifier::BOLD)),
-            Span::styled("ratatui-glamour", Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)),
-            Span::styled("  interactive showcase", Style::default().fg(Color::Indexed(189))),
+            Span::styled(
+                "⚡ ",
+                Style::default()
+                    .fg(Color::Indexed(219))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "ratatui-glamour",
+                Style::default()
+                    .fg(Color::Indexed(255))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "  interactive showcase",
+                Style::default().fg(Color::Indexed(189)),
+            ),
         ]))
         .borders(Borders::ALL)
         .border_set(Border::rounded().into_border_set())
@@ -128,17 +580,29 @@ fn render_app(frame: &mut Frame, app: &ShowcaseApp) {
 
     let [tabs_area, body_area, status_area]: [Rect; 3] = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(2)])
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
         .split(inner)
         .as_ref()
         .try_into()
         .unwrap();
 
-    let titles: Vec<Line> = TAB_TITLES.iter().map(|title| Line::from(format!(" {title} "))).collect();
+    let titles: Vec<Line> = TAB_TITLES
+        .iter()
+        .map(|title| Line::from(format!(" {title} ")))
+        .collect();
     Tabs::new(titles)
         .select(app.tab)
         .style(Style::default().fg(Color::Indexed(189)))
-        .highlight_style(Style::default().fg(Color::Indexed(16)).bg(Color::Indexed(219)).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Indexed(16))
+                .bg(Color::Indexed(219))
+                .add_modifier(Modifier::BOLD),
+        )
         .divider("")
         .render(tabs_area, frame.buffer_mut());
 
@@ -148,16 +612,23 @@ fn render_app(frame: &mut Frame, app: &ShowcaseApp) {
         2 => render_tree_list(body_area, frame),
         3 => render_table(body_area, frame, app),
         4 => render_layers(body_area, frame, app),
+        6 => render_widgets_demo(body_area, frame, app),
         _ => {}
     }
 
     let help = match app.tab {
-        3 => "Tab/Shift-Tab tabs  ↑/↓ table scroll  w wrap  q quit",
-        4 => "Tab/Shift-Tab tabs  ←/→/↑/↓ move hit cursor  q quit",
-        _ => "Tab/Shift-Tab tabs  q quit",
+        3 => "Shift+←/→ pages  ↑/↓/pgup/pgdn table  g/G home/end  q quit",
+        4 => "Shift+←/→ pages  ←/→/↑/↓ move hit cursor  q quit",
+        6 => "Tab/Shift-Tab widgets  Shift+←/→ pages  +/- progress  q quit",
+        _ => "Shift+←/→ pages  q quit",
     };
     Paragraph::new(help)
-        .style(Style::default().fg(Color::Indexed(255)).bg(Color::Indexed(54)).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Indexed(255))
+                .bg(Color::Indexed(54))
+                .add_modifier(Modifier::BOLD),
+        )
         .render(status_area, frame.buffer_mut());
 }
 
@@ -191,16 +662,40 @@ fn render_gradients(area: Rect, frame: &mut Frame) {
 
 fn render_ramps(area: Rect, frame: &mut Frame) {
     let ramps = [
-        blend_1d(area.width as usize, &[Color::Rgb(255, 0, 102), Color::Rgb(255, 178, 0), Color::Rgb(255, 255, 255)]),
-        blend_1d(area.width as usize, &[Color::Rgb(0, 194, 255), Color::Rgb(87, 255, 180), Color::Rgb(234, 255, 128)]),
-        blend_1d(area.width as usize, &[Color::Rgb(128, 0, 255), Color::Rgb(255, 0, 255), Color::Rgb(255, 128, 215)]),
+        blend_1d(
+            area.width as usize,
+            &[
+                Color::Rgb(255, 0, 102),
+                Color::Rgb(255, 178, 0),
+                Color::Rgb(255, 255, 255),
+            ],
+        ),
+        blend_1d(
+            area.width as usize,
+            &[
+                Color::Rgb(0, 194, 255),
+                Color::Rgb(87, 255, 180),
+                Color::Rgb(234, 255, 128),
+            ],
+        ),
+        blend_1d(
+            area.width as usize,
+            &[
+                Color::Rgb(128, 0, 255),
+                Color::Rgb(255, 0, 255),
+                Color::Rgb(255, 128, 215),
+            ],
+        ),
     ];
     for (row, ramp) in ramps.iter().enumerate() {
         if row as u16 >= area.height {
             break;
         }
         for (col, color) in ramp.iter().enumerate().take(area.width as usize) {
-            if let Some(cell) = frame.buffer_mut().cell_mut((area.x + col as u16, area.y + row as u16)) {
+            if let Some(cell) = frame
+                .buffer_mut()
+                .cell_mut((area.x + col as u16, area.y + row as u16))
+            {
                 cell.set_symbol("█");
                 cell.set_fg(*color);
             }
@@ -213,7 +708,12 @@ fn render_gradient_mesh(area: Rect, frame: &mut Frame) {
         area.width as usize,
         area.height as usize,
         28.0,
-        &[Color::Rgb(13, 15, 40), Color::Rgb(92, 27, 153), Color::Rgb(0, 215, 255), Color::Rgb(255, 95, 175)],
+        &[
+            Color::Rgb(13, 15, 40),
+            Color::Rgb(92, 27, 153),
+            Color::Rgb(0, 215, 255),
+            Color::Rgb(255, 95, 175),
+        ],
     );
     for y in 0..area.height {
         for x in 0..area.width {
@@ -244,7 +744,11 @@ fn render_borders(area: Rect, frame: &mut Frame) {
     for (r, row_area) in vertical.iter().enumerate() {
         let horizontal = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Ratio(1, cols), Constraint::Ratio(1, cols), Constraint::Ratio(1, cols)])
+            .constraints([
+                Constraint::Ratio(1, cols),
+                Constraint::Ratio(1, cols),
+                Constraint::Ratio(1, cols),
+            ])
             .split(*row_area);
         for (c, cell) in horizontal.iter().enumerate() {
             let idx = r * cols as usize + c;
@@ -256,9 +760,12 @@ fn render_borders(area: Rect, frame: &mut Frame) {
                 .border_style(Style::default().fg(color));
             let inner = block.inner(*cell);
             block.render(*cell, frame.buffer_mut());
-            Paragraph::new(format!("{}\n{}\n{}", "⚡ powerline-safe", "🭬 unicode-ready", "◉ table junctions later"))
-                .style(Style::default().fg(Color::Indexed(255)))
-                .render(inner, frame.buffer_mut());
+            Paragraph::new(format!(
+                "{}\n{}\n{}",
+                "⚡ powerline-safe", "🭬 unicode-ready", "◉ table junctions later"
+            ))
+            .style(Style::default().fg(Color::Indexed(255)))
+            .render(inner, frame.buffer_mut());
         }
     }
 }
@@ -289,7 +796,11 @@ fn render_tree_list(area: Rect, frame: &mut Frame) {
 
     let shopping = List::new()
         .enumerator(bullet)
-        .enumerator_style(Style::default().fg(Color::Indexed(219)).add_modifier(Modifier::BOLD))
+        .enumerator_style(
+            Style::default()
+                .fg(Color::Indexed(219))
+                .add_modifier(Modifier::BOLD),
+        )
         .item_style(Style::default().fg(Color::Indexed(255)))
         .items([
             "⚗ neon primer",
@@ -301,12 +812,19 @@ fn render_tree_list(area: Rect, frame: &mut Frame) {
 
     let backlog = List::new()
         .enumerator(arabic)
-        .enumerator_style(Style::default().fg(Color::Indexed(81)).add_modifier(Modifier::BOLD))
+        .enumerator_style(
+            Style::default()
+                .fg(Color::Indexed(81))
+                .add_modifier(Modifier::BOLD),
+        )
         .item_style(Style::default().fg(Color::Indexed(230)))
         .items([
             ListItem::from("port border presets"),
             ListItem::from("port tree widget"),
-            ListItem::from(vec![ListItem::from("multiline items"), ListItem::from("table renderer")]),
+            ListItem::from(vec![
+                ListItem::from("multiline items"),
+                ListItem::from("table renderer"),
+            ]),
         ]);
     (&backlog).render(backlog_area, frame.buffer_mut());
 
@@ -320,21 +838,42 @@ fn render_tree_list(area: Rect, frame: &mut Frame) {
 
     let tree = Tree::new()
         .root("glam source → ratatui-glamour/")
-        .root_style(Style::default().fg(Color::Indexed(230)).add_modifier(Modifier::BOLD))
+        .root_style(
+            Style::default()
+                .fg(Color::Indexed(230))
+                .add_modifier(Modifier::BOLD),
+        )
         .enumerator(rounded_enumerator)
-        .enumerator_style(Style::default().fg(Color::Indexed(213)).add_modifier(Modifier::BOLD))
+        .enumerator_style(
+            Style::default()
+                .fg(Color::Indexed(213))
+                .add_modifier(Modifier::BOLD),
+        )
         .indenter_style(Style::default().fg(Color::Indexed(99)))
-        .item_style_fn(|_, idx| if idx % 2 == 0 { Style::default().fg(Color::Indexed(255)) } else { Style::default().fg(Color::Indexed(189)) })
+        .item_style_fn(|_, idx| {
+            if idx % 2 == 0 {
+                Style::default().fg(Color::Indexed(255))
+            } else {
+                Style::default().fg(Color::Indexed(189))
+            }
+        })
         .children([
             TreeNode::new("border/mod.rs").child(TreeNode::new("preset mapping + ratatui adapter")),
-            TreeNode::new("list/mod.rs").children([TreeNode::new("arabic"), TreeNode::new("roman"), TreeNode::new("unicode bullets ⚡")]),
-            TreeNode::new("tree/mod.rs").children([TreeNode::new("multiline values\nwith prefix continuation"), TreeNode::new("styles + enumerators")]),
+            TreeNode::new("list/mod.rs").children([
+                TreeNode::new("arabic"),
+                TreeNode::new("roman"),
+                TreeNode::new("unicode bullets ⚡"),
+            ]),
+            TreeNode::new("tree/mod.rs").children([
+                TreeNode::new("multiline values\nwith prefix continuation"),
+                TreeNode::new("styles + enumerators"),
+            ]),
             TreeNode::new("table/mod.rs").child(TreeNode::new("planner + custom grid renderer")),
         ]);
     (&tree).render(tree_inner, frame.buffer_mut());
 }
 
-fn render_table(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
+fn render_table(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
     let block = Block::default()
         .title(" Table ")
         .borders(Borders::ALL)
@@ -343,35 +882,80 @@ fn render_table(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
     let inner = block.inner(area);
     block.render(area, frame.buffer_mut());
 
-    let table = Table::new()
-        .headers(["Module", "Status", "Notes"])
-        .rows([
-            ["border/mod.rs", "done", "Preset catalog plus adapter into ratatui border sets."],
-            ["color.rs", "done", "1D and 2D blend helpers for candy-ramp gradients."],
-            ["tree/mod.rs", "done", "Multiline values now continue under the correct branch prefix."],
-            ["list/mod.rs", "done", "Arabic, roman, bullets, nested items, Unicode-safe output."],
-            ["ansi.rs", "done", "ANSI exporter preserves fg/bg and wide icon widths for demos."],
-            ["table/mod.rs", "live", "Width planning, median-based shrink, overflow row, custom border grid renderer."],
-            ["showcase.rs", "live", "Interactive gallery instead of dumping a buffer and dying instantly."],
-            ["next", "pending", "Expose more style/padding semantics once higher-level glam widgets settle."],
+    let card = centered_rect(inner, inner.width.min(84), inner.height.min(20));
+    let [title_area, divider_area, body_area]: [Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
-        .border(Border::double())
-        .border_style(Style::default().fg(Color::Indexed(213)))
-        .style_fn(|row, col| match row {
-            HEADER_ROW => Style::default().fg(Color::Indexed(16)).bg(Color::Indexed(219)).add_modifier(Modifier::BOLD),
-            _ if col == 1 => {
-                let tone = match row {
-                    0..=4 => Color::Indexed(118),
-                    5..=6 => Color::Indexed(81),
-                    _ => Color::Indexed(220),
-                };
-                Style::default().fg(tone).add_modifier(Modifier::BOLD)
-            }
-            _ => Style::default().fg(Color::Indexed(255)),
-        })
-        .y_offset(app.table_offset)
-        .wrap(app.table_wrap);
-    (&table).render(inner, frame.buffer_mut());
+        .split(card)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            "Table",
+            Style::default()
+                .fg(Color::Indexed(255))
+                .add_modifier(Modifier::BOLD),
+        )),
+        title_area,
+    );
+    draw_horizontal_rule(
+        frame.buffer_mut(),
+        divider_area.x,
+        divider_area.y,
+        divider_area.width,
+        Color::Indexed(238),
+    );
+
+    let table_frame = Rect::new(
+        body_area.x + 6,
+        body_area.y + 1,
+        body_area.width.saturating_sub(12),
+        body_area.height.saturating_sub(2),
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        body_area,
+        Style::default().bg(Color::Indexed(235)),
+    );
+    draw_table_frame(frame.buffer_mut(), table_frame);
+
+    let table_area = Rect::new(
+        table_frame.x + 1,
+        table_frame.y + 1,
+        table_frame.width.saturating_sub(2),
+        table_frame.height.saturating_sub(2),
+    );
+    let table_content_area = Rect::new(
+        table_area.x,
+        table_area.y,
+        table_area.width.saturating_sub(1),
+        table_area.height,
+    );
+    let table_scrollbar_area = Rect::new(
+        table_content_area.right(),
+        table_area.y,
+        table_area.width.saturating_sub(table_content_area.width),
+        table_area.height,
+    );
+    app.table_model.set_size(
+        table_content_area.width as usize,
+        table_content_area.height as usize,
+    );
+    app.table_model
+        .render(table_content_area, frame.buffer_mut());
+    render_dark_scrollbar(
+        frame.buffer_mut(),
+        table_scrollbar_area,
+        app.table_model.viewport.y_offset(),
+        app.table_model.height().saturating_sub(1),
+        app.table_model.rows().len(),
+    );
 }
 
 fn render_layers(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
@@ -390,7 +974,11 @@ fn render_layers(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
         .border_style(Style::default().fg(Color::Indexed(213)));
     let scene_inner = scene_block.inner(scene_area);
     scene_block.render(scene_area, frame.buffer_mut());
-    fill_rect(frame.buffer_mut(), scene_inner, Style::default().bg(Color::Indexed(234)));
+    fill_rect(
+        frame.buffer_mut(),
+        scene_inner,
+        Style::default().bg(Color::Indexed(234)),
+    );
 
     let compositor = demo_compositor(scene_inner);
     (&compositor).render(scene_inner, frame.buffer_mut());
@@ -432,12 +1020,28 @@ fn render_layers(area: Rect, frame: &mut Frame, app: &ShowcaseApp) {
 }
 
 fn render_layout_demo(area: Rect, frame: &mut Frame) {
-    fill_rect(frame.buffer_mut(), area, Style::default().bg(Color::Indexed(234)));
-    let page = centered_rect(area, LAYOUT_WIDTH.min(area.width.saturating_sub(2)), LAYOUT_HEIGHT.min(area.height.saturating_sub(2)));
-    fill_rect(frame.buffer_mut(), page, Style::default().bg(Color::Indexed(234)));
+    fill_rect(
+        frame.buffer_mut(),
+        area,
+        Style::default().bg(Color::Indexed(234)),
+    );
+    let page = centered_rect(
+        area,
+        LAYOUT_WIDTH.min(area.width.saturating_sub(2)),
+        LAYOUT_HEIGHT.min(area.height.saturating_sub(2)),
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        page,
+        Style::default().bg(Color::Indexed(234)),
+    );
     let [top, middle, bottom]: [Rect; 3] = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(11), Constraint::Length(17), Constraint::Length(24)])
+        .constraints([
+            Constraint::Length(11),
+            Constraint::Length(17),
+            Constraint::Length(24),
+        ])
         .split(page)
         .as_ref()
         .try_into()
@@ -455,21 +1059,38 @@ fn render_layout_tabs(area: Rect, frame: &mut Frame) {
         Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(2), 3),
         &titles,
         0,
-        Style::default().fg(Color::Indexed(99)).bg(Color::Indexed(234)),
-        Style::default().fg(Color::Indexed(255)).bg(Color::Indexed(234)),
-        Style::default().fg(Color::Indexed(255)).bg(Color::Indexed(234)),
+        Style::default()
+            .fg(Color::Indexed(99))
+            .bg(Color::Indexed(234)),
+        Style::default()
+            .fg(Color::Indexed(255))
+            .bg(Color::Indexed(234)),
+        Style::default()
+            .fg(Color::Indexed(255))
+            .bg(Color::Indexed(234)),
     );
 
     let title_stack_x = area.x + 1;
     let title_stack_y = area.y + 5;
     let stack_colors = blend_1d(5, &[Color::Indexed(205), Color::Indexed(63)]);
     for (idx, color) in stack_colors.iter().enumerate() {
-        let rect = Rect::new(title_stack_x + idx as u16 * 2, title_stack_y + idx as u16, 11, 1);
+        let rect = Rect::new(
+            title_stack_x + idx as u16 * 2,
+            title_stack_y + idx as u16,
+            11,
+            1,
+        );
         fill_rect(frame.buffer_mut(), rect, Style::default().bg(*color));
         frame.buffer_mut().set_line(
             rect.x,
             rect.y,
-            &Line::from(vec![Span::styled(" Glamour ", Style::default().fg(Color::Indexed(231)).bg(*color).add_modifier(Modifier::ITALIC))]),
+            &Line::from(vec![Span::styled(
+                " Glamour ",
+                Style::default()
+                    .fg(Color::Indexed(231))
+                    .bg(*color)
+                    .add_modifier(Modifier::ITALIC),
+            )]),
             rect.width,
         );
     }
@@ -479,17 +1100,29 @@ fn render_layout_tabs(area: Rect, frame: &mut Frame) {
     frame.buffer_mut().set_line(
         desc_x,
         desc_y,
-        &Line::from(vec![Span::styled("Style Definitions for Nice Terminal Layouts", Style::default().fg(Color::Indexed(255)))]),
+        &Line::from(vec![Span::styled(
+            "Style Definitions for Nice Terminal Layouts",
+            Style::default().fg(Color::Indexed(255)),
+        )]),
         area.width.saturating_sub(desc_x - area.x),
     );
-    draw_horizontal_rule(frame.buffer_mut(), desc_x, desc_y + 1, area.right().saturating_sub(3) - desc_x, Color::Indexed(238));
+    draw_horizontal_rule(
+        frame.buffer_mut(),
+        desc_x,
+        desc_y + 1,
+        area.right().saturating_sub(3) - desc_x,
+        Color::Indexed(238),
+    );
     frame.buffer_mut().set_line(
         desc_x,
         desc_y + 2,
         &Line::from(vec![
             Span::styled("From Charm", Style::default().fg(Color::Indexed(250))),
             Span::styled(" • ", Style::default().fg(Color::Indexed(238))),
-            Span::styled("https://github.com/tinythings/ratatui-glamour", Style::default().fg(Color::Indexed(48))),
+            Span::styled(
+                "https://github.com/tinythings/ratatui-glamour",
+                Style::default().fg(Color::Indexed(48)),
+            ),
         ]),
         area.width.saturating_sub(desc_x - area.x),
     );
@@ -504,48 +1137,102 @@ fn render_layout_middle(area: Rect, frame: &mut Frame) {
         .try_into()
         .unwrap();
 
-    let popup_region = Rect::new(dialog_area.x, dialog_area.y, dialog_area.width, 9.min(dialog_area.height));
+    let popup_region = Rect::new(
+        dialog_area.x,
+        dialog_area.y,
+        dialog_area.width,
+        9.min(dialog_area.height),
+    );
     let dialog = place_with_pattern(
         frame.buffer_mut(),
         popup_region,
         52,
         6,
         "猫咪",
-        Style::default().fg(Color::Indexed(236)).bg(Color::Indexed(234)),
+        Style::default()
+            .fg(Color::Indexed(236))
+            .bg(Color::Indexed(234)),
     );
 
     let inner = render_gradient_rounded_panel(
         frame.buffer_mut(),
         dialog,
         Style::default().bg(Color::Indexed(234)),
-        &[Color::Indexed(205), Color::Indexed(99), Color::Indexed(51), Color::Indexed(99), Color::Indexed(205)],
+        &[
+            Color::Indexed(205),
+            Color::Indexed(99),
+            Color::Indexed(51),
+            Color::Indexed(99),
+            Color::Indexed(205),
+        ],
     );
     let headline = gradient_text_line(
         "Are you sure you want to eat marmalade?",
-        &[Color::Indexed(229), Color::Indexed(221), Color::Indexed(216), Color::Indexed(210), Color::Indexed(204)],
+        &[
+            Color::Indexed(229),
+            Color::Indexed(221),
+            Color::Indexed(216),
+            Color::Indexed(210),
+            Color::Indexed(204),
+        ],
         Color::Indexed(234),
     );
     let content_w = 50u16.min(inner.width);
     let content_x = inner.x + inner.width.saturating_sub(content_w) / 2;
-    frame.buffer_mut().set_line(content_x, inner.y + 1, &center_line(headline, content_w as usize, Color::Indexed(234)), content_w);
+    frame.buffer_mut().set_line(
+        content_x,
+        inner.y + 1,
+        &center_line(headline, content_w as usize, Color::Indexed(234)),
+        content_w,
+    );
 
     let yes_w = 9u16;
     let maybe_w = 11u16;
     let gap = 2u16;
     let buttons_w = yes_w + gap + maybe_w;
     let buttons_x = inner.x + inner.width.saturating_sub(buttons_w) / 2;
-    draw_button(frame.buffer_mut(), Rect::new(buttons_x, inner.y + 3, yes_w, 1), "Yes", Color::Indexed(205), Color::Indexed(231), true);
-    draw_button(frame.buffer_mut(), Rect::new(buttons_x + yes_w + gap, inner.y + 3, maybe_w, 1), "Maybe", Color::Indexed(246), Color::Indexed(231), false);
+    draw_button(
+        frame.buffer_mut(),
+        Rect::new(buttons_x, inner.y + 3, yes_w, 1),
+        "Yes",
+        Color::Indexed(205),
+        Color::Indexed(231),
+        true,
+    );
+    draw_button(
+        frame.buffer_mut(),
+        Rect::new(buttons_x + yes_w + gap, inner.y + 3, maybe_w, 1),
+        "Maybe",
+        Color::Indexed(246),
+        Color::Indexed(231),
+        false,
+    );
 
     let [left, center, right]: [Rect; 3] = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(1, 3), Constraint::Ratio(1, 3)])
+        .constraints([
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+        ])
         .split(columns_area)
         .as_ref()
         .try_into()
         .unwrap();
-    render_layout_list(frame, left, "Citrus Fruits to Try", &["Grapefruit", "Yuzu", "Citron", "Kumquat", "Pomelo"], &[0, 1]);
-    render_layout_list(frame, center, "Actual Glamour Vendors", &["Glossier", "Claire's Boutique", "Nyx", "Mac", "Milk"], &[2, 4]);
+    render_layout_list(
+        frame,
+        left,
+        "Citrus Fruits to Try",
+        &["Grapefruit", "Yuzu", "Citron", "Kumquat", "Pomelo"],
+        &[0, 1],
+    );
+    render_layout_list(
+        frame,
+        center,
+        "Actual Glamour Vendors",
+        &["Glossier", "Claire's Boutique", "Nyx", "Mac", "Milk"],
+        &[2, 4],
+    );
     render_swatch_grid(frame, right);
 }
 
@@ -559,72 +1246,528 @@ fn render_layout_bottom(area: Rect, frame: &mut Frame) {
         .unwrap();
     let [c1, c2, c3]: [Rect; 3] = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(1, 3), Constraint::Ratio(1, 3)])
+        .constraints([
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+        ])
         .spacing(2)
         .split(body)
         .as_ref()
         .try_into()
         .unwrap();
-    render_paragraph_card(frame, c1, "The Romans learned from the Greeks that quinces slowly cooked with honey would 'set' when cool. The Apicius gives a recipe for preserving whole quinces, stems and leaves attached, in a bath of honey diluted with defrutum.");
-    render_paragraph_card(frame, c2, "Medieval quince preserves, which went by the French name cotignac, produced in a clear version and a fruit pulp version, began to lose their medieval seasoning of spices in the 16th century.");
-    render_paragraph_card(frame, c3, "In 1524, Henry VIII, King of England, received a 'box of marmalade' from Mr. Hull of Exeter. This was probably marmelada, a solid quince paste from Portugal.");
-    let badge = Rect::new(c2.right().saturating_sub(7), c2.bottom().saturating_sub(3), 28, 2);
-    fill_rect(frame.buffer_mut(), badge, Style::default().bg(Color::Indexed(204)));
+    render_paragraph_card(
+        frame,
+        c1,
+        "The Romans learned from the Greeks that quinces slowly cooked with honey would 'set' when cool. The Apicius gives a recipe for preserving whole quinces, stems and leaves attached, in a bath of honey diluted with defrutum.",
+    );
+    render_paragraph_card(
+        frame,
+        c2,
+        "Medieval quince preserves, which went by the French name cotignac, produced in a clear version and a fruit pulp version, began to lose their medieval seasoning of spices in the 16th century.",
+    );
+    render_paragraph_card(
+        frame,
+        c3,
+        "In 1524, Henry VIII, King of England, received a 'box of marmalade' from Mr. Hull of Exeter. This was probably marmelada, a solid quince paste from Portugal.",
+    );
+    let badge = Rect::new(
+        c2.right().saturating_sub(7),
+        c2.bottom().saturating_sub(3),
+        28,
+        2,
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        badge,
+        Style::default().bg(Color::Indexed(204)),
+    );
     frame.buffer_mut().set_line(
         badge.x + 3,
         badge.y,
-        &Line::from(vec![Span::styled("Now with Compositing!", Style::default().fg(Color::Indexed(231)).bg(Color::Indexed(204)).add_modifier(Modifier::ITALIC))]),
+        &Line::from(vec![Span::styled(
+            "Now with Compositing!",
+            Style::default()
+                .fg(Color::Indexed(231))
+                .bg(Color::Indexed(204))
+                .add_modifier(Modifier::ITALIC),
+        )]),
         badge.width - 6,
     );
     render_status_bar(frame, status);
 }
 
-fn draw_tab(buf: &mut ratatui::buffer::Buffer, area: Rect, title: &str, active: bool) {
-    let color = Color::Indexed(99);
-    let border_style = Style::default().fg(color).bg(Color::Indexed(234));
-    buf.set_string(area.x, area.y, "╭", border_style);
-    for dx in 1..area.width - 1 { buf.set_string(area.x + dx, area.y, "─", border_style); }
-    buf.set_string(area.right() - 1, area.y, "╮", border_style);
-    buf.set_string(area.x, area.y + 1, "│", border_style);
-    buf.set_string(area.right() - 1, area.y + 1, "│", border_style);
-    let centered_title = centered(title, area.width as usize - 2);
-    if active {
-        let label = format!(" {} ", title);
-        let label_w = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16;
-        let label_x = area.x + 1 + ((area.width.saturating_sub(2)).saturating_sub(label_w)) / 2;
-        buf.set_line(area.x + 1, area.y + 1, &Line::from(vec![Span::styled(centered_title, Style::default().fg(Color::Indexed(255)).bg(Color::Indexed(234)))]), area.width - 2);
-        buf.set_line(
-            label_x,
-            area.y + 1,
-            &Line::from(vec![Span::styled(label, Style::default().fg(Color::Indexed(231)).bg(Color::Indexed(205)).add_modifier(Modifier::ITALIC))]),
-            label_w,
-        );
+fn render_widgets_demo(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
+    let [left_area, right_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Ratio(7, 16), Constraint::Ratio(9, 16)])
+        .spacing(1)
+        .split(area)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    let [progress_area, input_area, list_area]: [Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
+        .spacing(0)
+        .split(left_area)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    let [textarea_area, picker_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)])
+        .spacing(0)
+        .split(right_area)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    render_demo_block(frame, progress_area, "Progress", false);
+    app.widgets_progress
+        .render(inner_rect(progress_area), frame.buffer_mut());
+
+    render_demo_block(frame, input_area, "TextInput", app.widgets_focus == 0);
+    frame.render_widget(
+        Paragraph::new(app.widgets_input.view()),
+        inner_rect(input_area),
+    );
+
+    render_list_panel(frame, list_area, app);
+
+    render_textarea_panel(frame, textarea_area, app);
+
+    render_filepicker_panel(frame, picker_area, app);
+}
+
+fn render_demo_block(frame: &mut Frame, area: Rect, title: &str, focused: bool) {
+    let border_color = if focused {
+        Color::Indexed(219)
     } else {
-        buf.set_line(area.x + 1, area.y + 1, &Line::from(vec![Span::styled(centered_title, Style::default().fg(Color::Indexed(255)).bg(Color::Indexed(234)))]), area.width - 2);
+        Color::Indexed(99)
+    };
+    Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_set(Border::rounded().into_border_set())
+        .border_style(Style::default().fg(border_color))
+        .render(area, frame.buffer_mut());
+}
+
+fn render_textarea_panel(frame: &mut Frame, area: Rect, app: &mut ShowcaseApp) {
+    let title_style = if app.widgets_focus == 1 {
+        Style::default()
+            .fg(Color::Indexed(219))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Indexed(255))
+            .add_modifier(Modifier::BOLD)
+    };
+    let [title_area, body_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    frame.render_widget(
+        Paragraph::new(Line::styled("Text Area", title_style)),
+        title_area,
+    );
+
+    let inner = render_dark_panel(frame, body_area, app.widgets_focus == 1);
+
+    let padded = Rect::new(
+        inner.x + 2,
+        inner.y + 1,
+        inner.width.saturating_sub(4),
+        inner.height.saturating_sub(2),
+    );
+    let content_area = Rect::new(
+        padded.x,
+        padded.y,
+        padded.width.saturating_sub(1),
+        padded.height,
+    );
+    let scrollbar_area = Rect::new(
+        content_area.right(),
+        padded.y,
+        padded.width.saturating_sub(content_area.width),
+        padded.height,
+    );
+    app.widgets_textarea.set_width(content_area.width as usize);
+    app.widgets_textarea
+        .set_height(content_area.height as usize);
+    app.widgets_textarea
+        .render(content_area, frame.buffer_mut());
+    render_dark_scrollbar(
+        frame.buffer_mut(),
+        scrollbar_area,
+        app.widgets_textarea.viewport.y_offset(),
+        app.widgets_textarea.viewport.height(),
+        app.widgets_textarea.viewport.total_line_count(),
+    );
+}
+
+fn render_list_panel(frame: &mut Frame, area: Rect, app: &mut ShowcaseApp) {
+    let title_style = if app.widgets_focus == 2 {
+        Style::default()
+            .fg(Color::Indexed(219))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Indexed(255))
+            .add_modifier(Modifier::BOLD)
+    };
+    let [title_area, body_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    frame.render_widget(
+        Paragraph::new(Line::styled("List", title_style)),
+        title_area,
+    );
+
+    let inner = render_dark_panel(frame, body_area, app.widgets_focus == 2);
+    let padded = Rect::new(
+        inner.x + 1,
+        inner.y + 1,
+        inner.width.saturating_sub(2),
+        inner.height.saturating_sub(2),
+    );
+    app.widgets_list
+        .set_size(padded.width as usize, padded.height as usize);
+    app.widgets_list.render(padded, frame.buffer_mut());
+}
+
+fn render_filepicker_panel(frame: &mut Frame, area: Rect, app: &mut ShowcaseApp) {
+    let title_style = if app.widgets_focus == 3 {
+        Style::default()
+            .fg(Color::Indexed(219))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Indexed(255))
+            .add_modifier(Modifier::BOLD)
+    };
+    let [title_area, body_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(0)])
+        .split(area)
+        .as_ref()
+        .try_into()
+        .unwrap();
+
+    frame.render_widget(
+        Paragraph::new(Line::styled("File Picker", title_style)),
+        title_area,
+    );
+
+    let inner = render_dark_panel(frame, body_area, app.widgets_focus == 3);
+
+    let [path_area, selected_area, list_area]: [Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Min(0),
+        ])
+        .margin(2)
+        .split(inner)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    app.widgets_picker.set_height(list_area.height as usize);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("{} ", app.widgets_picker.cursor),
+                Style::default().fg(Color::Rgb(90, 86, 224)),
+            ),
+            Span::styled(
+                display_home_relative_path(
+                    &app.widgets_picker_root,
+                    &app.widgets_picker.current_directory,
+                ),
+                Style::default().fg(Color::Indexed(252)),
+            ),
+        ]))
+        .style(Style::default().bg(Color::Indexed(234))),
+        path_area,
+    );
+
+    let selected_label = if app.widgets_picker.path.as_os_str().is_empty() {
+        Line::from(vec![Span::styled(
+            "Pick a file:",
+            Style::default().fg(Color::Indexed(252)),
+        )])
+    } else {
+        Line::from(vec![
+            Span::styled("Selected file: ", Style::default().fg(Color::Indexed(252))),
+            Span::styled(
+                display_home_relative_path(&app.widgets_picker_root, &app.widgets_picker.path),
+                Style::default()
+                    .fg(Color::Indexed(213))
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])
+    };
+    frame.render_widget(
+        Paragraph::new(selected_label).style(Style::default().bg(Color::Indexed(234))),
+        selected_area,
+    );
+
+    frame.render_widget(
+        Paragraph::new(app.widgets_picker.view()).style(Style::default().bg(Color::Indexed(234))),
+        list_area,
+    );
+}
+
+fn widgets_textarea_content_area(area: Rect) -> Option<Rect> {
+    let [_, right_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Ratio(7, 16), Constraint::Ratio(9, 16)])
+        .spacing(1)
+        .split(area)
+        .as_ref()
+        .try_into()
+        .ok()?;
+    let [textarea_area, _]: [Rect; 2] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)])
+        .spacing(1)
+        .split(right_area)
+        .as_ref()
+        .try_into()
+        .ok()?;
+    let [_, body_area]: [Rect; 2] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(0)])
+        .split(textarea_area)
+        .as_ref()
+        .try_into()
+        .ok()?;
+    let inner = Rect::new(
+        body_area.x + 1,
+        body_area.y + 1,
+        body_area.width.saturating_sub(2),
+        body_area.height.saturating_sub(2),
+    );
+    let padded = Rect::new(
+        inner.x + 2,
+        inner.y + 1,
+        inner.width.saturating_sub(4),
+        inner.height.saturating_sub(2),
+    );
+    Some(Rect::new(
+        padded.x,
+        padded.y,
+        padded.width.saturating_sub(1),
+        padded.height,
+    ))
+}
+
+fn widgets_demo_body_area(area: Rect) -> Option<Rect> {
+    let inner = Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    );
+    let [_, body_area, _]: [Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(inner)
+        .as_ref()
+        .try_into()
+        .ok()?;
+    Some(body_area)
+}
+
+fn rect_contains(area: Rect, point: (u16, u16)) -> bool {
+    point.0 >= area.x && point.0 < area.right() && point.1 >= area.y && point.1 < area.bottom()
+}
+
+fn render_dark_scrollbar(
+    buf: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    offset: usize,
+    visible: usize,
+    total: usize,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
     }
-    if active {
-        buf.set_string(area.x, area.y + 2, "┘", border_style);
-        for dx in 1..area.width - 1 { buf.set_string(area.x + dx, area.y + 2, " ", Style::default().bg(Color::Indexed(234))); }
-        buf.set_string(area.right() - 1, area.y + 2, "└", border_style);
-    } else {
-        buf.set_string(area.x, area.y + 2, "┴", border_style);
-        for dx in 1..area.width - 1 { buf.set_string(area.x + dx, area.y + 2, "─", border_style); }
-        buf.set_string(area.right() - 1, area.y + 2, "┴", border_style);
+
+    let track_style = Style::default()
+        .fg(Color::Indexed(236))
+        .bg(Color::Indexed(234));
+    let thumb_style = Style::default()
+        .fg(Color::Indexed(241))
+        .bg(Color::Indexed(234));
+    for y in 0..area.height {
+        buf.set_string(area.x, area.y + y, "│", track_style);
+    }
+
+    if total <= visible || visible == 0 {
+        return;
+    }
+
+    let thumb_height = ((area.height as usize * visible) / total)
+        .max(1)
+        .min(area.height as usize);
+    let max_offset = total.saturating_sub(visible).max(1);
+    let thumb_travel = area.height as usize - thumb_height;
+    let thumb_top = (offset.min(max_offset) * thumb_travel) / max_offset;
+    for y in 0..thumb_height {
+        buf.set_string(area.x, area.y + (thumb_top + y) as u16, "█", thumb_style);
     }
 }
 
-fn draw_horizontal_rule(buf: &mut ratatui::buffer::Buffer, x: u16, y: u16, width: u16, color: Color) {
-    for dx in 0..width { buf.set_string(x + dx, y, "─", Style::default().fg(color)); }
+fn render_dark_panel(frame: &mut Frame, area: Rect, focused: bool) -> Rect {
+    let fill = Style::default().bg(Color::Indexed(234));
+    if focused {
+        return render_gradient_rounded_panel(
+            frame.buffer_mut(),
+            area,
+            fill,
+            &[
+                Color::Indexed(205),
+                Color::Indexed(99),
+                Color::Indexed(51),
+                Color::Indexed(99),
+                Color::Indexed(205),
+            ],
+        );
+    }
+
+    let panel = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Indexed(238)))
+        .style(fill);
+    let inner = panel.inner(area);
+    panel.render(area, frame.buffer_mut());
+    inner
+}
+
+fn display_home_relative_path(root: &Path, path: &Path) -> String {
+    if path == root {
+        return "~".to_string();
+    }
+    match path.strip_prefix(root) {
+        Ok(rel) => format!("~/{}", rel.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+fn home_directory() -> PathBuf {
+    env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn inner_rect(area: Rect) -> Rect {
+    Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    )
+}
+
+fn draw_horizontal_rule(
+    buf: &mut ratatui::buffer::Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    color: Color,
+) {
+    for dx in 0..width {
+        buf.set_string(x + dx, y, "─", Style::default().fg(color));
+    }
+}
+
+fn draw_table_frame(buf: &mut ratatui::buffer::Buffer, area: Rect) {
+    if area.width < 2 || area.height < 2 {
+        return;
+    }
+    let style = Style::default()
+        .fg(Color::Indexed(239))
+        .bg(Color::Indexed(235));
+    for x in area.x + 1..area.right().saturating_sub(1) {
+        buf.set_string(x, area.y, "─", style);
+        buf.set_string(x, area.bottom().saturating_sub(1), "─", style);
+    }
+    for y in area.y + 1..area.bottom().saturating_sub(1) {
+        buf.set_string(area.x, y, "│", style);
+        buf.set_string(area.right().saturating_sub(1), y, "│", style);
+    }
+    buf.set_string(area.x, area.y, "┌", style);
+    buf.set_string(area.right().saturating_sub(1), area.y, "┐", style);
+    buf.set_string(area.x, area.bottom().saturating_sub(1), "└", style);
+    buf.set_string(
+        area.right().saturating_sub(1),
+        area.bottom().saturating_sub(1),
+        "┘",
+        style,
+    );
 }
 
 fn fill_rect(buf: &mut ratatui::buffer::Buffer, area: Rect, style: Style) {
-    for y in 0..area.height { for x in 0..area.width { if let Some(cell) = buf.cell_mut((area.x + x, area.y + y)) { cell.set_symbol(" "); cell.set_style(style); } } }
+    for y in 0..area.height {
+        for x in 0..area.width {
+            if let Some(cell) = buf.cell_mut((area.x + x, area.y + y)) {
+                cell.set_symbol(" ");
+                cell.set_style(style);
+            }
+        }
+    }
 }
 
-fn draw_button(buf: &mut ratatui::buffer::Buffer, area: Rect, label: &str, bg: Color, fg: Color, underline: bool) {
-    let style = if underline { Style::default().bg(bg).fg(fg).add_modifier(Modifier::UNDERLINED) } else { Style::default().bg(bg).fg(fg) };
+fn draw_button(
+    buf: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    label: &str,
+    bg: Color,
+    fg: Color,
+    underline: bool,
+) {
+    let style = if underline {
+        Style::default()
+            .bg(bg)
+            .fg(fg)
+            .add_modifier(Modifier::UNDERLINED)
+    } else {
+        Style::default().bg(bg).fg(fg)
+    };
     fill_rect(buf, area, Style::default().bg(bg));
-    buf.set_line(area.x, area.y, &Line::from(vec![Span::styled(centered(label, area.width as usize), style)]), area.width);
+    buf.set_line(
+        area.x,
+        area.y,
+        &Line::from(vec![Span::styled(
+            centered(label, area.width as usize),
+            style,
+        )]),
+        area.width,
+    );
 }
 
 fn gradient_text_line(text: &str, stops: &[Color], bg: Color) -> Line<'static> {
@@ -656,24 +1799,58 @@ fn center_line(line: Line<'static>, width: usize, bg: Color) -> Line<'static> {
 }
 
 fn render_layout_list(frame: &mut Frame, area: Rect, title: &str, items: &[&str], done: &[usize]) {
-    frame.buffer_mut().set_line(area.x, area.y, &Line::from(vec![Span::styled(title, Style::default().fg(Color::Indexed(255)))]), area.width);
-    draw_horizontal_rule(frame.buffer_mut(), area.x, area.y + 1, area.width.saturating_sub(3), Color::Indexed(238));
+    frame.buffer_mut().set_line(
+        area.x,
+        area.y,
+        &Line::from(vec![Span::styled(
+            title,
+            Style::default().fg(Color::Indexed(255)),
+        )]),
+        area.width,
+    );
+    draw_horizontal_rule(
+        frame.buffer_mut(),
+        area.x,
+        area.y + 1,
+        area.width.saturating_sub(3),
+        Color::Indexed(238),
+    );
     for (idx, item) in items.iter().enumerate() {
         let y = area.y + 2 + idx as u16;
         let mark = if done.contains(&idx) { "✓" } else { " " };
-        let item_style = if done.contains(&idx) { Style::default().fg(Color::Indexed(240)).add_modifier(Modifier::CROSSED_OUT) } else { Style::default().fg(Color::Indexed(255)) };
+        let item_style = if done.contains(&idx) {
+            Style::default()
+                .fg(Color::Indexed(240))
+                .add_modifier(Modifier::CROSSED_OUT)
+        } else {
+            Style::default().fg(Color::Indexed(255))
+        };
         frame.buffer_mut().set_line(
             area.x,
             y,
-            &Line::from(vec![Span::styled(format!("{mark} "), Style::default().fg(Color::Indexed(48))), Span::styled((*item).to_string(), item_style)]),
+            &Line::from(vec![
+                Span::styled(format!("{mark} "), Style::default().fg(Color::Indexed(48))),
+                Span::styled((*item).to_string(), item_style),
+            ]),
             area.width,
         );
     }
-    draw_vertical_rule(frame.buffer_mut(), area.right().saturating_sub(1), area.y, area.height.saturating_sub(1), Color::Indexed(238));
+    draw_vertical_rule(
+        frame.buffer_mut(),
+        area.right().saturating_sub(1),
+        area.y,
+        area.height.saturating_sub(1),
+        Color::Indexed(238),
+    );
 }
 
 fn render_swatch_grid(frame: &mut Frame, area: Rect) {
-    let grid = Rect::new(area.x + 2, area.y, area.width.saturating_sub(4), area.height.saturating_sub(1));
+    let grid = Rect::new(
+        area.x + 2,
+        area.y,
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(1),
+    );
     let colors = corner_blend_2d(
         grid.width as usize,
         grid.height as usize,
@@ -682,21 +1859,44 @@ fn render_swatch_grid(frame: &mut Frame, area: Rect) {
         Color::Indexed(63),
         Color::Indexed(51),
     );
-    for y in 0..grid.height { for x in 0..grid.width { let idx = y as usize * grid.width as usize + x as usize; if let Some(cell) = frame.buffer_mut().cell_mut((grid.x + x, grid.y + y)) { cell.set_symbol(" "); cell.set_bg(colors[idx]); } } }
+    for y in 0..grid.height {
+        for x in 0..grid.width {
+            let idx = y as usize * grid.width as usize + x as usize;
+            if let Some(cell) = frame.buffer_mut().cell_mut((grid.x + x, grid.y + y)) {
+                cell.set_symbol(" ");
+                cell.set_bg(colors[idx]);
+            }
+        }
+    }
 }
 
-fn corner_blend_2d(width: usize, height: usize, top_left: Color, top_right: Color, bottom_left: Color, bottom_right: Color) -> Vec<Color> {
+fn corner_blend_2d(
+    width: usize,
+    height: usize,
+    top_left: Color,
+    top_right: Color,
+    bottom_left: Color,
+    bottom_right: Color,
+) -> Vec<Color> {
     let mut out = Vec::with_capacity(width.saturating_mul(height));
     if width == 0 || height == 0 {
         return out;
     }
 
     for y in 0..height {
-        let ty = if height > 1 { y as f32 / (height - 1) as f32 } else { 0.0 };
+        let ty = if height > 1 {
+            y as f32 / (height - 1) as f32
+        } else {
+            0.0
+        };
         let left = lerp_showcase_color(top_left, bottom_left, ty);
         let right = lerp_showcase_color(top_right, bottom_right, ty);
         for x in 0..width {
-            let tx = if width > 1 { x as f32 / (width - 1) as f32 } else { 0.0 };
+            let tx = if width > 1 {
+                x as f32 / (width - 1) as f32
+            } else {
+                0.0
+            };
             out.push(lerp_showcase_color(left, right, tx));
         }
     }
@@ -706,19 +1906,13 @@ fn corner_blend_2d(width: usize, height: usize, top_left: Color, top_right: Colo
 
 fn lerp_showcase_color(from: Color, to: Color, t: f32) -> Color {
     match (from, to) {
-        (Color::Rgb(fr, fg, fb), Color::Rgb(tr, tg, tb)) => Color::Rgb(
-            lerp_u8(fr, tr, t),
-            lerp_u8(fg, tg, t),
-            lerp_u8(fb, tb, t),
-        ),
+        (Color::Rgb(fr, fg, fb), Color::Rgb(tr, tg, tb)) => {
+            Color::Rgb(lerp_u8(fr, tr, t), lerp_u8(fg, tg, t), lerp_u8(fb, tb, t))
+        }
         _ => {
             let (fr, fg, fb) = ratatui_glamour::color::color_to_rgb(from);
             let (tr, tg, tb) = ratatui_glamour::color::color_to_rgb(to);
-            Color::Rgb(
-                lerp_u8(fr, tr, t),
-                lerp_u8(fg, tg, t),
-                lerp_u8(fb, tb, t),
-            )
+            Color::Rgb(lerp_u8(fr, tr, t), lerp_u8(fg, tg, t), lerp_u8(fb, tb, t))
         }
     }
 }
@@ -728,63 +1922,169 @@ fn lerp_u8(from: u8, to: u8, t: f32) -> u8 {
 }
 
 fn render_paragraph_card(frame: &mut Frame, area: Rect, text: &str) {
-    fill_rect(frame.buffer_mut(), area, Style::default().bg(Color::Indexed(99)));
-    let inner = Rect::new(area.x + 2, area.y + 1, area.width.saturating_sub(4), area.height.saturating_sub(2));
+    fill_rect(
+        frame.buffer_mut(),
+        area,
+        Style::default().bg(Color::Indexed(99)),
+    );
+    let inner = Rect::new(
+        area.x + 2,
+        area.y + 1,
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(2),
+    );
     let wrapped = wrap_text_lines(text, inner.width as usize);
     for (idx, line) in wrapped.into_iter().take(inner.height as usize).enumerate() {
-        frame.buffer_mut().set_line(inner.x, inner.y + idx as u16, &Line::from(vec![Span::styled(centered(&line, inner.width as usize), Style::default().fg(Color::Indexed(231)).bg(Color::Indexed(99)))]), inner.width);
+        frame.buffer_mut().set_line(
+            inner.x,
+            inner.y + idx as u16,
+            &Line::from(vec![Span::styled(
+                centered(&line, inner.width as usize),
+                Style::default()
+                    .fg(Color::Indexed(231))
+                    .bg(Color::Indexed(99)),
+            )]),
+            inner.width,
+        );
     }
 }
 
 fn render_status_bar(frame: &mut Frame, area: Rect) {
     let left = Rect::new(area.x, area.y, 8, area.height);
-    let center = Rect::new(area.x + 8, area.y, area.width.saturating_sub(28), area.height);
+    let center = Rect::new(
+        area.x + 8,
+        area.y,
+        area.width.saturating_sub(28),
+        area.height,
+    );
     let right_a = Rect::new(area.right().saturating_sub(20), area.y, 8, area.height);
     let right_b = Rect::new(area.right().saturating_sub(12), area.y, 12, area.height);
 
-    fill_rect(frame.buffer_mut(), left, Style::default().bg(Color::Indexed(204)));
-    fill_rect(frame.buffer_mut(), center, Style::default().bg(Color::Indexed(236)));
-    fill_rect(frame.buffer_mut(), right_a, Style::default().bg(Color::Indexed(99)));
-    fill_rect(frame.buffer_mut(), right_b, Style::default().bg(Color::Indexed(63)));
+    fill_rect(
+        frame.buffer_mut(),
+        left,
+        Style::default().bg(Color::Indexed(204)),
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        center,
+        Style::default().bg(Color::Indexed(236)),
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        right_a,
+        Style::default().bg(Color::Indexed(99)),
+    );
+    fill_rect(
+        frame.buffer_mut(),
+        right_b,
+        Style::default().bg(Color::Indexed(63)),
+    );
 
-    frame.buffer_mut().set_line(left.x + 1, left.y, &Line::from(vec![Span::styled("STATUS", Style::default().fg(Color::Indexed(231)).bg(Color::Indexed(204)).add_modifier(Modifier::BOLD))]), left.width - 1);
-    frame.buffer_mut().set_line(center.x + 1, center.y, &Line::from(vec![Span::styled("Ravishingly Dark!", Style::default().fg(Color::Indexed(223)).bg(Color::Indexed(236)))]), center.width - 2);
-    frame.buffer_mut().set_line(right_a.x + 1, right_a.y, &Line::from(vec![Span::styled("UTF-8", Style::default().fg(Color::Indexed(231)).bg(Color::Indexed(99)))]), right_a.width - 1);
-    frame.buffer_mut().set_line(right_b.x + 1, right_b.y, &Line::from(vec![Span::styled("⚙ Fish Cake", Style::default().fg(Color::Indexed(231)).bg(Color::Indexed(63)))]), right_b.width - 1);
+    frame.buffer_mut().set_line(
+        left.x + 1,
+        left.y,
+        &Line::from(vec![Span::styled(
+            "STATUS",
+            Style::default()
+                .fg(Color::Indexed(231))
+                .bg(Color::Indexed(204))
+                .add_modifier(Modifier::BOLD),
+        )]),
+        left.width - 1,
+    );
+    frame.buffer_mut().set_line(
+        center.x + 1,
+        center.y,
+        &Line::from(vec![Span::styled(
+            "Ravishingly Dark!",
+            Style::default()
+                .fg(Color::Indexed(223))
+                .bg(Color::Indexed(236)),
+        )]),
+        center.width - 2,
+    );
+    frame.buffer_mut().set_line(
+        right_a.x + 1,
+        right_a.y,
+        &Line::from(vec![Span::styled(
+            "UTF-8",
+            Style::default()
+                .fg(Color::Indexed(231))
+                .bg(Color::Indexed(99)),
+        )]),
+        right_a.width - 1,
+    );
+    frame.buffer_mut().set_line(
+        right_b.x + 1,
+        right_b.y,
+        &Line::from(vec![Span::styled(
+            "⚙ Fish Cake",
+            Style::default()
+                .fg(Color::Indexed(231))
+                .bg(Color::Indexed(63)),
+        )]),
+        right_b.width - 1,
+    );
 }
 
-fn draw_vertical_rule(buf: &mut ratatui::buffer::Buffer, x: u16, y: u16, height: u16, color: Color) {
-    for dy in 0..height { buf.set_string(x, y + dy, "│", Style::default().fg(color)); }
+fn draw_vertical_rule(
+    buf: &mut ratatui::buffer::Buffer,
+    x: u16,
+    y: u16,
+    height: u16,
+    color: Color,
+) {
+    for dy in 0..height {
+        buf.set_string(x, y + dy, "│", Style::default().fg(color));
+    }
 }
 
 fn wrap_text_lines(text: &str, width: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
     for word in text.split_whitespace() {
-        let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
-        if unicode_width::UnicodeWidthStr::width(candidate.as_str()) > width && !current.is_empty() {
+        let candidate = if current.is_empty() {
+            word.to_string()
+        } else {
+            format!("{current} {word}")
+        };
+        if unicode_width::UnicodeWidthStr::width(candidate.as_str()) > width && !current.is_empty()
+        {
             out.push(current);
             current = word.to_string();
         } else {
             current = candidate;
         }
     }
-    if !current.is_empty() { out.push(current); }
+    if !current.is_empty() {
+        out.push(current);
+    }
     out
 }
 
 fn demo_compositor(area: Rect) -> Compositor {
-    let field = Layer::from_lines(slash_field_lines(area.width.min(43), area.height.min(17), Color::Rgb(54, 54, 64)))
-        .id("field-a")
-        .x(5)
-        .y(2)
-        .z(0);
+    let field = Layer::from_lines(slash_field_lines(
+        area.width.min(43),
+        area.height.min(17),
+        Color::Rgb(54, 54, 64),
+    ))
+    .id("field-a")
+    .x(5)
+    .y(2)
+    .z(0);
 
     let pickles = Layer::from_lines(card_lines(
         "Pickles",
         Color::Indexed(255),
         Color::Indexed(234),
-        &[Color::Indexed(205), Color::Indexed(99), Color::Indexed(51), Color::Indexed(99), Color::Indexed(205)],
+        &[
+            Color::Indexed(205),
+            Color::Indexed(99),
+            Color::Indexed(51),
+            Color::Indexed(99),
+            Color::Indexed(205),
+        ],
     ))
     .id("pickles")
     .x(4)
@@ -795,7 +2095,13 @@ fn demo_compositor(area: Rect) -> Compositor {
         "Bitter\nMelon",
         Color::Indexed(255),
         Color::Indexed(234),
-        &[Color::Indexed(205), Color::Indexed(99), Color::Indexed(51), Color::Indexed(99), Color::Indexed(205)],
+        &[
+            Color::Indexed(205),
+            Color::Indexed(99),
+            Color::Indexed(51),
+            Color::Indexed(99),
+            Color::Indexed(205),
+        ],
     ))
     .id("melon")
     .x(22)
@@ -806,7 +2112,13 @@ fn demo_compositor(area: Rect) -> Compositor {
         "Sriracha",
         Color::Indexed(255),
         Color::Indexed(234),
-        &[Color::Indexed(205), Color::Indexed(99), Color::Indexed(51), Color::Indexed(99), Color::Indexed(205)],
+        &[
+            Color::Indexed(205),
+            Color::Indexed(99),
+            Color::Indexed(51),
+            Color::Indexed(99),
+            Color::Indexed(205),
+        ],
     ))
     .id("sriracha")
     .x(11)
@@ -821,7 +2133,10 @@ fn slash_field_lines(width: u16, height: u16, color: Color) -> Vec<Line<'static>
     let mut lines = Vec::with_capacity(height as usize);
     let style = Style::default().fg(color);
     for _ in 0..height {
-        lines.push(Line::from(vec![Span::styled("/".repeat(width as usize), style)]));
+        lines.push(Line::from(vec![Span::styled(
+            "/".repeat(width as usize),
+            style,
+        )]));
     }
     lines
 }
@@ -830,7 +2145,8 @@ fn card_lines(title: &str, fg: Color, bg: Color, border_stops: &[Color]) -> Vec<
     let width = 16usize;
     let height = 9usize;
     let text_style = Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD);
-    let mut lines = gradient_rounded_panel_lines(width, height, Style::default().bg(bg), border_stops);
+    let mut lines =
+        gradient_rounded_panel_lines(width, height, Style::default().bg(bg), border_stops);
 
     let title_lines: Vec<&str> = title.split('\n').collect();
     let start_row = 3 + (1usize.saturating_sub(title_lines.len().saturating_sub(1)));
@@ -860,7 +2176,11 @@ fn paint_background(buf: &mut ratatui::buffer::Buffer, area: Rect) {
         area.width as usize,
         area.height as usize,
         24.0,
-        &[Color::Rgb(12, 10, 32), Color::Rgb(32, 16, 64), Color::Rgb(10, 65, 91)],
+        &[
+            Color::Rgb(12, 10, 32),
+            Color::Rgb(32, 16, 64),
+            Color::Rgb(10, 65, 91),
+        ],
     );
     for y in 0..area.height {
         for x in 0..area.width {

@@ -7,3 +7,4 @@ pub mod rule;
 pub mod surface;
 pub mod table;
 pub mod tree;
+pub mod widgets;

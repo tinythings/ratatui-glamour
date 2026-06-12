@@ -22,7 +22,10 @@ pub struct Canvas {
 impl Canvas {
     pub fn new(width: u16, height: u16) -> Self {
         let area = Rect::new(0, 0, width, height);
-        Self { area, buf: Buffer::empty(area) }
+        Self {
+            area,
+            buf: Buffer::empty(area),
+        }
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -72,7 +75,11 @@ impl Canvas {
         for y in 0..self.area.height {
             let mut line = String::new();
             for x in 0..self.area.width {
-                let symbol = self.buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or(" ");
+                let symbol = self
+                    .buf
+                    .cell((x, y))
+                    .map(|cell| cell.symbol())
+                    .unwrap_or(" ");
                 line.push_str(symbol);
             }
             while line.ends_with(' ') {
@@ -108,12 +115,32 @@ impl Layer {
 
     pub fn from_text(content: impl Into<String>) -> Self {
         let text: String = content.into();
-        let lines = if text.is_empty() { vec![Line::default()] } else { text.split('\n').map(|line| Line::raw(line.to_string())).collect() };
-        Self { id: String::new(), content: lines, x: 0, y: 0, z: 0, layers: Vec::new() }
+        let lines = if text.is_empty() {
+            vec![Line::default()]
+        } else {
+            text.split('\n')
+                .map(|line| Line::raw(line.to_string()))
+                .collect()
+        };
+        Self {
+            id: String::new(),
+            content: lines,
+            x: 0,
+            y: 0,
+            z: 0,
+            layers: Vec::new(),
+        }
     }
 
     pub fn from_lines(content: Vec<Line<'static>>) -> Self {
-        Self { id: String::new(), content, x: 0, y: 0, z: 0, layers: Vec::new() }
+        Self {
+            id: String::new(),
+            content,
+            x: 0,
+            y: 0,
+            z: 0,
+            layers: Vec::new(),
+        }
     }
 
     pub fn id(mut self, id: impl Into<String>) -> Self {
@@ -122,7 +149,11 @@ impl Layer {
     }
 
     pub fn style(mut self, style: Style) -> Self {
-        self.content = self.content.into_iter().map(|line| patch_line_style(line, style)).collect();
+        self.content = self
+            .content
+            .into_iter()
+            .map(|line| patch_line_style(line, style))
+            .collect();
         self
     }
 
@@ -163,9 +194,15 @@ impl Layer {
         &self.layers
     }
 
-    pub fn x_pos(&self) -> i32 { self.x }
-    pub fn y_pos(&self) -> i32 { self.y }
-    pub fn z_pos(&self) -> i32 { self.z }
+    pub fn x_pos(&self) -> i32 {
+        self.x
+    }
+    pub fn y_pos(&self) -> i32 {
+        self.y
+    }
+    pub fn z_pos(&self) -> i32 {
+        self.z
+    }
 
     pub fn width(&self) -> u16 {
         let self_width = self.content.iter().map(line_width).max().unwrap_or(0) as i32;
@@ -199,7 +236,12 @@ impl Layer {
             right = right.max(cb.right() as i32);
             bottom = bottom.max(cb.bottom() as i32);
         }
-        Rect::new(left.max(0) as u16, top.max(0) as u16, right.saturating_sub(left).max(0) as u16, bottom.saturating_sub(top).max(0) as u16)
+        Rect::new(
+            left.max(0) as u16,
+            top.max(0) as u16,
+            right.saturating_sub(left).max(0) as u16,
+            bottom.saturating_sub(top).max(0) as u16,
+        )
     }
 
     pub fn get_layer(&self, id: &str) -> Option<&Layer> {
@@ -213,7 +255,9 @@ impl Layer {
     }
 
     pub fn max_z(&self) -> i32 {
-        self.layers.iter().fold(self.z, |acc, child| acc.max(child.max_z()))
+        self.layers
+            .iter()
+            .fold(self.z, |acc, child| acc.max(child.max_z()))
     }
 }
 
@@ -253,7 +297,11 @@ pub struct Compositor {
 impl Compositor {
     pub fn new(layers: impl IntoIterator<Item = Layer>) -> Self {
         let root = Layer::from_text("").add_layers(layers);
-        let mut this = Self { root, layers: Vec::new(), bounds: Rect::default() };
+        let mut this = Self {
+            root,
+            layers: Vec::new(),
+            bounds: Rect::default(),
+        };
         this.refresh();
         this
     }
@@ -275,14 +323,20 @@ impl Compositor {
         self.layers.clear();
         flatten_recursive(&self.root, 0, 0, &mut self.layers);
         self.layers.sort_by_key(|layer| layer.layer.z);
-        self.bounds = self.layers.iter().fold(Rect::default(), |acc, layer| union_rect(acc, layer.bounds));
+        self.bounds = self
+            .layers
+            .iter()
+            .fold(Rect::default(), |acc, layer| union_rect(acc, layer.bounds));
     }
 
     pub fn hit(&self, x: u16, y: u16) -> LayerHit {
         let point = Position::new(x, y);
         for layer in self.layers.iter().rev() {
             if !layer.layer.id.is_empty() && rect_contains(layer.bounds, point) {
-                return LayerHit { id: layer.layer.id.clone(), bounds: Some(layer.bounds) };
+                return LayerHit {
+                    id: layer.layer.id.clone(),
+                    bounds: Some(layer.bounds),
+                };
             }
         }
         LayerHit::default()
@@ -305,7 +359,13 @@ impl Drawable for Compositor {
     fn draw(&self, canvas: &mut Canvas, area: Rect) {
         for layer in &self.layers {
             if rects_overlap(layer.bounds, area) {
-                draw_layer_content(&layer.layer, canvas.buffer_mut(), area, layer.abs_x, layer.abs_y);
+                draw_layer_content(
+                    &layer.layer,
+                    canvas.buffer_mut(),
+                    area,
+                    layer.abs_x,
+                    layer.abs_y,
+                );
             }
         }
     }
@@ -315,7 +375,13 @@ impl Widget for &Compositor {
     fn render(self, area: Rect, buf: &mut Buffer) {
         for layer in &self.layers {
             if rects_overlap(layer.bounds, area) {
-                draw_layer_content(&layer.layer, buf, area, layer.abs_x + area.x as i32, layer.abs_y + area.y as i32);
+                draw_layer_content(
+                    &layer.layer,
+                    buf,
+                    area,
+                    layer.abs_x + area.x as i32,
+                    layer.abs_y + area.y as i32,
+                );
             }
         }
     }
@@ -324,8 +390,18 @@ impl Widget for &Compositor {
 fn flatten_recursive(layer: &Layer, parent_x: i32, parent_y: i32, out: &mut Vec<CompositeLayer>) {
     let abs_x = layer.x + parent_x;
     let abs_y = layer.y + parent_y;
-    let bounds = Rect::new(abs_x.max(0) as u16, abs_y.max(0) as u16, layer.width(), layer.height());
-    out.push(CompositeLayer { layer: layer.clone(), abs_x, abs_y, bounds });
+    let bounds = Rect::new(
+        abs_x.max(0) as u16,
+        abs_y.max(0) as u16,
+        layer.width(),
+        layer.height(),
+    );
+    out.push(CompositeLayer {
+        layer: layer.clone(),
+        abs_x,
+        abs_y,
+        bounds,
+    });
     for child in &layer.layers {
         flatten_recursive(child, abs_x, abs_y, out);
     }
@@ -349,7 +425,11 @@ fn draw_layer_content(layer: &Layer, buf: &mut Buffer, clip: Rect, abs_x: i32, a
 }
 
 fn patch_line_style(mut line: Line<'static>, style: Style) -> Line<'static> {
-    line.spans = line.spans.into_iter().map(|span| patch_span_style(span, style)).collect();
+    line.spans = line
+        .spans
+        .into_iter()
+        .map(|span| patch_span_style(span, style))
+        .collect();
     line
 }
 
@@ -359,7 +439,10 @@ fn patch_span_style(mut span: Span<'static>, style: Style) -> Span<'static> {
 }
 
 fn line_width(line: &Line<'static>) -> usize {
-    line.spans.iter().map(|span| UnicodeWidthStr::width(span.content.as_ref())).sum()
+    line.spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum()
 }
 
 fn union_rect(a: Rect, b: Rect) -> Rect {

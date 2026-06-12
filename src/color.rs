@@ -36,13 +36,21 @@ pub fn blend_1d(steps: usize, stops: &[Color]) -> Vec<Color> {
     let segments = stops.len() - 1;
     let mut out = Vec::with_capacity(steps);
     for step in 0..steps {
-        let pos = if steps > 1 { step as f32 / (steps - 1) as f32 } else { 0.0 };
+        let pos = if steps > 1 {
+            step as f32 / (steps - 1) as f32
+        } else {
+            0.0
+        };
         let scaled = pos * segments as f32;
         let idx = scaled.floor() as usize;
         let from = stops[idx.min(segments - 1)];
         let to = stops[(idx + 1).min(segments)];
         let local_t = scaled - idx.min(segments - 1) as f32;
-        out.push(if idx >= segments { *stops.last().unwrap() } else { lerp_color(from, to, local_t) });
+        out.push(if idx >= segments {
+            *stops.last().unwrap()
+        } else {
+            lerp_color(from, to, local_t)
+        });
     }
     out
 }

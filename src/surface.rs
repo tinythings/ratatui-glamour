@@ -13,10 +13,20 @@ use crate::color::lerp_color;
 pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);
     let height = height.min(area.height);
-    Rect::new(area.x + (area.width.saturating_sub(width)) / 2, area.y + (area.height.saturating_sub(height)) / 2, width, height)
+    Rect::new(
+        area.x + (area.width.saturating_sub(width)) / 2,
+        area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    )
 }
 
-pub fn render_rounded_panel(buf: &mut Buffer, area: Rect, border_style: Style, fill_style: Style) -> Rect {
+pub fn render_rounded_panel(
+    buf: &mut Buffer,
+    area: Rect,
+    border_style: Style,
+    fill_style: Style,
+) -> Rect {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(Border::rounded().into_border_set())
@@ -27,17 +37,31 @@ pub fn render_rounded_panel(buf: &mut Buffer, area: Rect, border_style: Style, f
     inner
 }
 
-pub fn render_gradient_rounded_panel(buf: &mut Buffer, area: Rect, fill_style: Style, stops: &[ratatui::style::Color]) -> Rect {
-    let lines = gradient_rounded_panel_lines(area.width as usize, area.height as usize, fill_style, stops);
+pub fn render_gradient_rounded_panel(
+    buf: &mut Buffer,
+    area: Rect,
+    fill_style: Style,
+    stops: &[ratatui::style::Color],
+) -> Rect {
+    let lines =
+        gradient_rounded_panel_lines(area.width as usize, area.height as usize, fill_style, stops);
     for (row, line) in lines.into_iter().enumerate() {
         buf.set_line(area.x, area.y + row as u16, &line, area.width);
     }
 
-    Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(2), area.height.saturating_sub(2))
+    Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    )
 }
 
 pub fn gradient_rounded_panel_lines(
-    width: usize, height: usize, fill_style: Style, stops: &[ratatui::style::Color],
+    width: usize,
+    height: usize,
+    fill_style: Style,
+    stops: &[ratatui::style::Color],
 ) -> Vec<Line<'static>> {
     if width == 0 || height == 0 {
         return Vec::new();
@@ -68,13 +92,26 @@ pub fn fill_repeated_text(buf: &mut Buffer, area: Rect, token: &str, style: Styl
     }
 }
 
-pub fn place_with_pattern(buf: &mut Buffer, area: Rect, width: u16, height: u16, token: &str, style: Style) -> Rect {
+pub fn place_with_pattern(
+    buf: &mut Buffer,
+    area: Rect,
+    width: u16,
+    height: u16,
+    token: &str,
+    style: Style,
+) -> Rect {
     fill_repeated_text(buf, area, token, style);
     centered_rect(area, width, height)
 }
 
 pub fn render_classic_tabs_row(
-    buf: &mut Buffer, area: Rect, labels: &[&str], active: usize, border_style: Style, active_label_style: Style, inactive_label_style: Style,
+    buf: &mut Buffer,
+    area: Rect,
+    labels: &[&str],
+    active: usize,
+    border_style: Style,
+    active_label_style: Style,
+    inactive_label_style: Style,
 ) {
     if area.width < 4 || area.height < 3 || labels.is_empty() {
         return;
@@ -84,12 +121,23 @@ pub fn render_classic_tabs_row(
     let y = area.y;
     let bottom_y = y + 2;
 
-    let widths: Vec<u16> = labels.iter().map(|label| UnicodeWidthStr::width(*label) as u16 + 4).collect();
+    let widths: Vec<u16> = labels
+        .iter()
+        .map(|label| UnicodeWidthStr::width(*label) as u16 + 4)
+        .collect();
     let used: u16 = widths.iter().sum();
 
     for (idx, label) in labels.iter().enumerate() {
         let w = widths[idx];
-        render_classic_tab(buf, Rect::new(x, y, w, 3), label, idx == active, border_style, active_label_style, inactive_label_style);
+        render_classic_tab(
+            buf,
+            Rect::new(x, y, w, 3),
+            label,
+            idx == active,
+            border_style,
+            active_label_style,
+            inactive_label_style,
+        );
         x += w;
     }
 
@@ -107,7 +155,13 @@ pub fn render_classic_tabs_row(
 }
 
 fn render_classic_tab(
-    buf: &mut Buffer, area: Rect, label: &str, active: bool, border_style: Style, active_label_style: Style, inactive_label_style: Style,
+    buf: &mut Buffer,
+    area: Rect,
+    label: &str,
+    active: bool,
+    border_style: Style,
+    active_label_style: Style,
+    inactive_label_style: Style,
 ) {
     if area.width < 4 || area.height < 3 {
         return;
@@ -143,10 +197,23 @@ fn render_classic_tab(
         );
     }
 
-    let (left, fill, right) = if active { ("┘", " ", "└") } else { ("┴", "─", "┴") };
+    let (left, fill, right) = if active {
+        ("┘", " ", "└")
+    } else {
+        ("┴", "─", "┴")
+    };
     buf.set_string(area.x, area.y + 2, left, border_style);
     for dx in 1..area.width - 1 {
-        buf.set_string(area.x + dx, area.y + 2, fill, if active { inactive_label_style } else { border_style });
+        buf.set_string(
+            area.x + dx,
+            area.y + 2,
+            fill,
+            if active {
+                inactive_label_style
+            } else {
+                border_style
+            },
+        );
     }
     buf.set_string(area.right() - 1, area.y + 2, right, border_style);
 }
@@ -172,7 +239,11 @@ fn gradient_colors(count: usize, stops: &[ratatui::style::Color]) -> Vec<ratatui
     let segments = stops.len() - 1;
     (0..count)
         .map(|idx| {
-            let pos = if count > 1 { idx as f32 / (count - 1) as f32 } else { 0.0 };
+            let pos = if count > 1 {
+                idx as f32 / (count - 1) as f32
+            } else {
+                0.0
+            };
             let scaled = pos * segments as f32;
             let base = scaled.floor() as usize;
             if base >= segments {

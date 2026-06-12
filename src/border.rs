@@ -18,6 +18,7 @@ pub struct Border {
 }
 
 impl Border {
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         top: &'static str,
         bottom: &'static str,
@@ -55,15 +56,21 @@ impl Border {
     }
 
     pub const fn normal() -> Self {
-        Self::new("─", "─", "│", "│", "┌", "┐", "└", "┘", "├", "┤", "┼", "┬", "┴")
+        Self::new(
+            "─", "─", "│", "│", "┌", "┐", "└", "┘", "├", "┤", "┼", "┬", "┴",
+        )
     }
 
     pub const fn rounded() -> Self {
-        Self::new("─", "─", "│", "│", "╭", "╮", "╰", "╯", "├", "┤", "┼", "┬", "┴")
+        Self::new(
+            "─", "─", "│", "│", "╭", "╮", "╰", "╯", "├", "┤", "┼", "┬", "┴",
+        )
     }
 
     pub const fn block() -> Self {
-        Self::new("█", "█", "█", "█", "█", "█", "█", "█", "█", "█", "█", "█", "█")
+        Self::new(
+            "█", "█", "█", "█", "█", "█", "█", "█", "█", "█", "█", "█", "█",
+        )
     }
 
     pub const fn outer_half_block() -> Self {
@@ -75,23 +82,33 @@ impl Border {
     }
 
     pub const fn thick() -> Self {
-        Self::new("━", "━", "┃", "┃", "┏", "┓", "┗", "┛", "┣", "┫", "╋", "┳", "┻")
+        Self::new(
+            "━", "━", "┃", "┃", "┏", "┓", "┗", "┛", "┣", "┫", "╋", "┳", "┻",
+        )
     }
 
     pub const fn double() -> Self {
-        Self::new("═", "═", "║", "║", "╔", "╗", "╚", "╝", "╠", "╣", "╬", "╦", "╩")
+        Self::new(
+            "═", "═", "║", "║", "╔", "╗", "╚", "╝", "╠", "╣", "╬", "╦", "╩",
+        )
     }
 
     pub const fn hidden() -> Self {
-        Self::new(" ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ")
+        Self::new(
+            " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ",
+        )
     }
 
     pub const fn markdown() -> Self {
-        Self::new("-", "-", "|", "|", "|", "|", "|", "|", "|", "|", "|", "|", "|")
+        Self::new(
+            "-", "-", "|", "|", "|", "|", "|", "|", "|", "|", "|", "|", "|",
+        )
     }
 
     pub const fn ascii() -> Self {
-        Self::new("-", "-", "|", "|", "+", "+", "+", "+", "+", "+", "+", "+", "+")
+        Self::new(
+            "-", "-", "|", "|", "+", "+", "+", "+", "+", "+", "+", "+", "+",
+        )
     }
 
     pub const fn into_border_set(self) -> border::Set<'static> {
