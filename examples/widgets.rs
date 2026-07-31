@@ -1,6 +1,6 @@
-use std::io;
+use std::{io, time::Duration};
 
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -10,11 +10,31 @@ use ratatui::{
 use ratatui_glamour::widgets::{
     filepicker::Model as FilePicker,
     list::{DefaultDelegate, DefaultListItem, Model as ListModel},
+    passwordinput::Model as PasswordInput,
     progress::Model as Progress,
     spinner,
     textinput::Model as TextInput,
     timer::Model as Timer,
 };
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    Input,
+    Password,
+    List,
+    Picker,
+}
+
+impl Focus {
+    fn next(self) -> Self {
+        match self {
+            Self::Input => Self::Password,
+            Self::Password => Self::List,
+            Self::List => Self::Picker,
+            Self::Picker => Self::Input,
+        }
+    }
+}
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
@@ -27,7 +47,9 @@ fn main() -> io::Result<()> {
     let mut input = TextInput::new();
     input.focus();
     input.placeholder = "type here".into();
-    let timer = Timer::new(std::time::Duration::from_secs(90), []);
+    let mut password = PasswordInput::new();
+    password.set_placeholder("password");
+    let mut timer = Timer::new(Duration::from_secs(90), []);
 
     let items = vec![
         DefaultListItem {
@@ -41,18 +63,73 @@ fn main() -> io::Result<()> {
             filter_value: "beta".into(),
         },
     ];
-    let list = ListModel::new(items, DefaultDelegate::new(), 40, 8);
+    let mut list = ListModel::new(items, DefaultDelegate::new(), 40, 8);
 
     let mut picker = FilePicker::new();
     let _ = picker.read_dir();
 
+    let mut focus = Focus::Input;
+
     loop {
-        terminal.draw(|frame| render(frame, &spin, &progress, &input, &timer, &list, &picker))?;
-        if event::poll(std::time::Duration::from_millis(50))?
-            && let Event::Key(key) = event::read()?
-            && (key.code == KeyCode::Char('q') || key.code == KeyCode::Esc)
-        {
-            break;
+        spin.update(spin.tick());
+        timer.update_tick(timer.tick_msg());
+        progress.update(progress.frame_msg());
+
+        terminal.draw(|frame| {
+            render(
+                frame,
+                &spin,
+                &progress,
+                &input,
+                &password,
+                &timer,
+                &list,
+                &picker,
+                focus,
+            )
+        })?;
+
+        if event::poll(Duration::from_millis(50))? {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    if key.code == KeyCode::Char('q')
+                        || (key.code == KeyCode::Esc
+                            && !key.modifiers.contains(KeyModifiers::SHIFT))
+                    {
+                        break;
+                    }
+                    if key.code == KeyCode::Tab {
+                        match focus {
+                            Focus::Input => input.blur(),
+                            Focus::Password => password.blur(),
+                            _ => {}
+                        }
+                        focus = focus.next();
+                        match focus {
+                            Focus::Input => input.focus(),
+                            Focus::Password => password.focus(),
+                            _ => {}
+                        }
+                        continue;
+                    }
+                    match focus {
+                        Focus::Input => input.handle_key(&key),
+                        Focus::Password => {
+                            if key.code == KeyCode::Enter {
+                                input.set_value(&format!("{} :-)", password.value()));
+                                password.reset();
+                            } else {
+                                password.handle_key(&key);
+                            }
+                        }
+                        Focus::List => list.handle_key(&key),
+                        Focus::Picker => {
+                            let _ = picker.handle_key(&key);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -65,9 +142,11 @@ fn render(
     spin: &spinner::Model,
     progress: &Progress,
     input: &TextInput,
+    password: &PasswordInput,
     timer: &Timer,
     list: &ListModel<DefaultListItem, DefaultDelegate>,
     picker: &FilePicker,
+    focus: Focus,
 ) {
     let area = frame.area();
     let cols = Layout::default()
@@ -81,26 +160,73 @@ fn render(
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(10),
+            Constraint::Length(3),
+            Constraint::Length(3),
         ])
         .split(cols[0]);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(8)])
-        .split(cols[1]);
 
-    block(frame, left[0], "Spinner", Paragraph::new(spin.view()));
-    block(frame, left[1], "Progress", Paragraph::new(progress.view()));
-    block(frame, left[2], "Timer", Paragraph::new(timer.view()));
-    block(frame, left[3], "List", Paragraph::new(list.view()));
-    block(frame, right[0], "TextInput", Paragraph::new(input.view()));
-    block(frame, right[1], "FilePicker", Paragraph::new(picker.view()));
+    let focus_style = Style::default().fg(Color::Yellow);
+    let normal_style = Style::default().fg(Color::Blue);
+
+    let input_style = if focus == Focus::Input {
+        focus_style
+    } else {
+        normal_style
+    };
+    let password_style = if focus == Focus::Password {
+        focus_style
+    } else {
+        normal_style
+    };
+    let list_style = if focus == Focus::List {
+        focus_style
+    } else {
+        normal_style
+    };
+    let picker_style = if focus == Focus::Picker {
+        focus_style
+    } else {
+        normal_style
+    };
+
+    block(frame, left[0], "Spinner", Paragraph::new(spin.view()), normal_style);
+    block(frame, left[1], "Progress", Paragraph::new(progress.view()), normal_style);
+    block(frame, left[2], "Timer", Paragraph::new(timer.view()), normal_style);
+    block(frame, left[3], "List", Paragraph::new(list.view()), list_style);
+    block(
+        frame,
+        left[4],
+        "TextInput",
+        Paragraph::new(input.view()),
+        input_style,
+    );
+    block(
+        frame,
+        left[5],
+        "Password",
+        Paragraph::new(password.view()),
+        password_style,
+    );
+    block(
+        frame,
+        cols[1],
+        "FilePicker",
+        Paragraph::new(picker.view()),
+        picker_style,
+    );
 }
 
-fn block<W: ratatui::widgets::Widget>(frame: &mut Frame, area: Rect, title: &str, widget: W) {
+fn block<W: ratatui::widgets::Widget>(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    widget: W,
+    border_style: Style,
+) {
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Blue));
+        .border_style(border_style);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(widget, inner);
