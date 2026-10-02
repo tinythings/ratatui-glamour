@@ -8,6 +8,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::widgets::{
+    cursor,
     key::{self, Binding},
     viewport,
 };
@@ -140,6 +141,7 @@ pub struct Model {
     row: usize,
     last_char_offset: usize,
     pub viewport: viewport::Model,
+    pub virtual_cursor: cursor::Model,
 }
 
 impl Default for Model {
@@ -176,6 +178,7 @@ impl Model {
             row: 0,
             last_char_offset: 0,
             viewport,
+            virtual_cursor: cursor::Model::new(),
         };
         model.set_width(DEFAULT_WIDTH);
         model.set_height(DEFAULT_HEIGHT);
@@ -195,9 +198,11 @@ impl Model {
     }
     pub fn focus(&mut self) {
         self.focus = true;
+        self.virtual_cursor.focus();
     }
     pub fn blur(&mut self) {
         self.focus = false;
+        self.virtual_cursor.blur();
     }
     pub fn line_count(&self) -> usize {
         self.value.len()
@@ -468,10 +473,12 @@ impl Model {
                             .copied()
                             .unwrap_or(self.end_of_buffer_character)
                     };
-                    spans.push(Span::styled(
-                        cursor_ch.to_string(),
-                        self.styles.cursor.style,
-                    ));
+                    let cursor_style = if self.focus && !self.virtual_cursor.is_blinked {
+                        self.styles.cursor.style
+                    } else {
+                        text_style
+                    };
+                    spans.push(Span::styled(cursor_ch.to_string(), cursor_style));
                     let after: String = text
                         .get(line_info.column_offset + 1..)
                         .unwrap_or(&[])
