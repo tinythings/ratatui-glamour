@@ -77,15 +77,7 @@ fn main() -> io::Result<()> {
 
         terminal.draw(|frame| {
             render(
-                frame,
-                &spin,
-                &progress,
-                &input,
-                &password,
-                &timer,
-                &list,
-                &picker,
-                focus,
+                frame, &spin, &progress, &input, &password, &timer, &list, &picker, focus,
             )
         })?;
 
@@ -189,10 +181,34 @@ fn render(
         normal_style
     };
 
-    block(frame, left[0], "Spinner", Paragraph::new(spin.view()), normal_style);
-    block(frame, left[1], "Progress", Paragraph::new(progress.view()), normal_style);
-    block(frame, left[2], "Timer", Paragraph::new(timer.view()), normal_style);
-    block(frame, left[3], "List", Paragraph::new(list.view()), list_style);
+    block(
+        frame,
+        left[0],
+        "Spinner",
+        Paragraph::new(spin.view()),
+        normal_style,
+    );
+    block(
+        frame,
+        left[1],
+        "Progress",
+        Paragraph::new(progress.view()),
+        normal_style,
+    );
+    block(
+        frame,
+        left[2],
+        "Timer",
+        Paragraph::new(timer.view()),
+        normal_style,
+    );
+    block(
+        frame,
+        left[3],
+        "List",
+        Paragraph::new(list.view()),
+        list_style,
+    );
     block(
         frame,
         left[4],

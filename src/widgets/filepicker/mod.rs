@@ -76,6 +76,18 @@ pub struct Styles {
     pub cursor: Style,
     pub symlink: Style,
     pub directory: Style,
+    /// Style for the synthetic `..` parent entry.
+    pub parent: Style,
+    /// Style for executable files.
+    pub executable: Style,
+    /// Style for image files.
+    pub image: Style,
+    /// Style for archive files.
+    pub archive: Style,
+    /// Style for audio and video files.
+    pub media: Style,
+    /// Style for documents.
+    pub document: Style,
     pub file: Style,
     pub disabled_file: Style,
     pub permission: Style,
@@ -92,6 +104,16 @@ impl Default for Styles {
             cursor: Style::default().fg(Color::Indexed(212)),
             symlink: Style::default().fg(Color::Indexed(36)),
             directory: Style::default().fg(Color::Indexed(99)),
+            parent: Style::default()
+                .fg(Color::Indexed(105))
+                .add_modifier(Modifier::BOLD),
+            executable: Style::default()
+                .fg(Color::Indexed(213))
+                .add_modifier(Modifier::BOLD),
+            image: Style::default().fg(Color::Indexed(141)),
+            archive: Style::default().fg(Color::Indexed(203)),
+            media: Style::default().fg(Color::Indexed(215)),
+            document: Style::default().fg(Color::Indexed(114)),
             file: Style::default(),
             disabled_file: Style::default().fg(Color::Indexed(243)),
             permission: Style::default().fg(Color::Indexed(244)),
@@ -110,6 +132,10 @@ pub struct FileEntry {
     pub name: String,
     pub path: PathBuf,
     pub is_dir: bool,
+    /// True for the synthetic `..` entry that points at the parent directory.
+    pub is_parent: bool,
+    /// True for an executable regular file (any execute bit set, Unix only).
+    pub is_executable: bool,
     pub is_symlink: bool,
     pub symlink_path: Option<PathBuf>,
     pub permissions: String,
@@ -126,6 +152,8 @@ pub struct Model {
     pub show_permissions: bool,
     pub show_size: bool,
     pub show_hidden: bool,
+    /// Prepend a synthetic `..` entry that opens the parent directory.
+    pub show_parent: bool,
     pub dir_allowed: bool,
     pub file_allowed: bool,
     pub file_selected: String,
@@ -159,6 +187,7 @@ impl Model {
             show_permissions: true,
             show_size: true,
             show_hidden: false,
+            show_parent: false,
             dir_allowed: false,
             file_allowed: true,
             file_selected: String::new(),
@@ -216,6 +245,8 @@ impl Model {
                     name,
                     path,
                     is_dir: meta.is_dir(),
+                    is_parent: false,
+                    is_executable: is_executable(&meta),
                     is_symlink,
                     symlink_path,
                     permissions: permissions_string(&symlink_meta),
@@ -228,9 +259,34 @@ impl Model {
             (false, true) => std::cmp::Ordering::Greater,
             _ => a.name.cmp(&b.name),
         });
+        if let Some(parent) = self.parent_entry() {
+            entries.insert(0, parent);
+        }
         self.files = entries;
         self.normalize_window();
         Ok(())
+    }
+
+    /// The synthetic `..` entry, when enabled and a parent exists.
+    fn parent_entry(&self) -> Option<FileEntry> {
+        if !self.show_parent {
+            return None;
+        }
+        let parent = self.current_directory.parent()?;
+        if parent == self.current_directory {
+            return None;
+        }
+        Some(FileEntry {
+            name: "..".to_string(),
+            path: parent.to_path_buf(),
+            is_dir: true,
+            is_parent: true,
+            is_executable: false,
+            is_symlink: false,
+            symlink_path: None,
+            permissions: String::new(),
+            size: 0,
+        })
     }
 
     pub fn handle_key(&mut self, event: &KeyEvent) -> std::io::Result<()> {
@@ -267,29 +323,22 @@ impl Model {
             self.min_idx = self.min_idx.saturating_sub(step);
             self.max_idx = self.min_idx.saturating_add(step).saturating_sub(1);
         } else if key::matches(event, [&self.key_map.back]) {
-            self.current_directory = self
-                .current_directory
-                .parent()
-                .unwrap_or(Path::new("/"))
-                .to_path_buf();
-            if let (Some(selected), Some(min_idx), Some(max_idx)) = (
-                self.selected_stack.pop(),
-                self.min_stack.pop(),
-                self.max_stack.pop(),
-            ) {
-                self.selected = selected;
-                self.min_idx = min_idx;
-                self.max_idx = max_idx;
-            } else {
-                self.selected = 0;
-                self.min_idx = 0;
-                self.max_idx = self.height.saturating_sub(1);
-            }
-            self.read_dir()?;
+            self.go_back()?;
         } else if key::matches(event, [&self.key_map.open]) {
-            if let Some(entry) = self.selected() {
-                if entry.is_dir {
-                    self.current_directory = entry.path.clone();
+            let selected = self.selected().map(|entry| {
+                (
+                    entry.is_parent,
+                    entry.is_dir,
+                    self.file_allowed && self.entry_allowed(entry),
+                    entry.path.clone(),
+                    entry.name.clone(),
+                )
+            });
+            if let Some((is_parent, is_dir, allowed, path, name)) = selected {
+                if is_parent {
+                    self.go_back()?;
+                } else if is_dir {
+                    self.current_directory = path;
                     self.selected_stack.push(self.selected);
                     self.min_stack.push(self.min_idx);
                     self.max_stack.push(self.max_idx);
@@ -297,9 +346,7 @@ impl Model {
                     self.min_idx = 0;
                     self.max_idx = self.height.saturating_sub(1);
                     self.read_dir()?;
-                } else if self.file_allowed && self.entry_allowed(entry) {
-                    let path = entry.path.clone();
-                    let name = entry.name.clone();
+                } else if allowed {
                     self.path = path;
                     self.file_selected = name;
                 }
@@ -315,6 +362,49 @@ impl Model {
             self.file_selected = name;
         }
         Ok(())
+    }
+
+    /// Moves to the parent directory, restoring the previously selected index
+    /// when this directory was reached by opening a child. Shared by the
+    /// `back` binding and by opening the synthetic `..` entry.
+    fn go_back(&mut self) -> std::io::Result<()> {
+        self.current_directory = self
+            .current_directory
+            .parent()
+            .unwrap_or(Path::new("/"))
+            .to_path_buf();
+        if let (Some(selected), Some(min_idx), Some(max_idx)) = (
+            self.selected_stack.pop(),
+            self.min_stack.pop(),
+            self.max_stack.pop(),
+        ) {
+            self.selected = selected;
+            self.min_idx = min_idx;
+            self.max_idx = max_idx;
+        } else {
+            self.selected = 0;
+            self.min_idx = 0;
+            self.max_idx = self.height.saturating_sub(1);
+        }
+        self.read_dir()
+    }
+
+    /// The style for a regular file's extension category, if any.
+    fn extension_style(&self, entry: &FileEntry) -> Option<Style> {
+        let extension = entry.path.extension()?.to_str()?.to_ascii_lowercase();
+        if IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+            return Some(self.styles.image);
+        }
+        if ARCHIVE_EXTENSIONS.contains(&extension.as_str()) {
+            return Some(self.styles.archive);
+        }
+        if MEDIA_EXTENSIONS.contains(&extension.as_str()) {
+            return Some(self.styles.media);
+        }
+        if DOCUMENT_EXTENSIONS.contains(&extension.as_str()) {
+            return Some(self.styles.document);
+        }
+        None
     }
 
     pub fn view(&self) -> Vec<Line<'static>> {
@@ -347,10 +437,16 @@ impl Model {
                     } else {
                         self.styles.selected
                     }
+                } else if entry.is_parent {
+                    self.styles.parent
                 } else if entry.is_dir {
                     self.styles.directory
                 } else if entry.is_symlink {
                     self.styles.symlink
+                } else if entry.is_executable {
+                    self.styles.executable
+                } else if let Some(style) = self.extension_style(entry) {
+                    style
                 } else if disabled {
                     self.styles.disabled_file
                 } else {
@@ -365,7 +461,7 @@ impl Model {
                     },
                     cursor_style,
                 )];
-                if self.show_permissions {
+                if !entry.is_parent && self.show_permissions {
                     spans.push(Span::raw(" "));
                     spans.push(Span::styled(
                         entry.permissions.clone(),
@@ -376,7 +472,7 @@ impl Model {
                         },
                     ));
                 }
-                if self.show_size {
+                if !entry.is_parent && self.show_size {
                     spans.push(Span::styled(
                         format!("{:>8}", human_size(entry.size)),
                         if selected {
@@ -488,6 +584,25 @@ impl Model {
 fn is_hidden(file: &str) -> bool {
     file.starts_with('.')
 }
+
+/// Whether a regular file carries any execute bit (Unix); always false elsewhere.
+#[cfg(unix)]
+fn is_executable(meta: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    meta.is_file() && meta.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_meta: &fs::Metadata) -> bool {
+    false
+}
+
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"];
+const ARCHIVE_EXTENSIONS: &[&str] = &["zip", "tar", "gz", "bz2", "xz", "7z", "rar", "zst"];
+const MEDIA_EXTENSIONS: &[&str] = &[
+    "mp4", "mkv", "mov", "avi", "webm", "mp3", "flac", "wav", "ogg",
+];
+const DOCUMENT_EXTENSIONS: &[&str] = &["pdf", "doc", "docx", "odt", "txt", "md", "rst"];
 
 fn human_size(size: u64) -> String {
     const UNITS: [&str; 5] = ["B", "K", "M", "G", "T"];
