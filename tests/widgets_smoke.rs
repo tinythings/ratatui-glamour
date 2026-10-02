@@ -177,6 +177,56 @@ fn textarea_inserts_multiple_lines() {
     assert_eq!(area.column(), 3);
 }
 
+fn cursor_style(area: &TextArea, ch: char) -> Style {
+    area.view()
+        .into_iter()
+        .flat_map(|line| line.spans)
+        .find(|span| span.content.contains(ch))
+        .expect("cursor character span")
+        .style
+}
+
+#[test]
+fn textarea_focused_cursor_uses_cursor_style() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.set_value("x");
+    area.cursor_start();
+    assert!(
+        cursor_style(&area, 'x')
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
+#[test]
+fn textarea_blinked_cursor_is_hidden() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.set_value("x");
+    area.cursor_start();
+    area.virtual_cursor.is_blinked = true;
+    assert!(
+        !cursor_style(&area, 'x')
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
+#[test]
+fn textarea_blurred_cursor_is_hidden() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.set_value("x");
+    area.cursor_start();
+    area.blur();
+    assert!(
+        !cursor_style(&area, 'x')
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
 #[test]
 fn textarea_set_value_resets_and_moves_cursor() {
     let mut area = TextArea::new();
@@ -754,5 +804,82 @@ fn filepicker_restores_previous_selection_when_going_back() {
         .unwrap();
     assert_eq!(picker.selected_index(), before);
 
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn filepicker_parent_is_hidden_by_default() {
+    let root = PathBuf::from("target/test-filepicker-parent-off");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let mut picker = FilePicker::new();
+    picker.current_directory = root.clone();
+    picker.read_dir().unwrap();
+    assert!(picker.files().iter().all(|entry| !entry.is_parent));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn filepicker_shows_parent_first_when_enabled() {
+    let root = PathBuf::from("target/test-filepicker-parent");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("dir")).unwrap();
+    fs::write(root.join("a.txt"), b"x").unwrap();
+    let mut picker = FilePicker::new();
+    picker.current_directory = root.clone();
+    picker.show_parent = true;
+    picker.set_height(10);
+    picker.read_dir().unwrap();
+    let first = &picker.files()[0];
+    assert!(first.is_parent);
+    assert_eq!(first.name, "..");
+    assert!(picker.files().iter().skip(1).all(|entry| !entry.is_parent));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn filepicker_opening_parent_ascends() {
+    let root = PathBuf::from("target/test-filepicker-up");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("dir")).unwrap();
+    let mut picker = FilePicker::new();
+    picker.current_directory = root.join("dir");
+    picker.show_parent = true;
+    picker.set_height(10);
+    picker.read_dir().unwrap();
+    assert!(picker.files()[0].is_parent);
+    picker
+        .handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .unwrap();
+    assert_eq!(picker.current_directory, root);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn filepicker_marks_executables() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = PathBuf::from("target/test-filepicker-exec");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let executable = root.join("run.sh");
+    fs::write(&executable, b"x").unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(root.join("plain.txt"), b"x").unwrap();
+
+    let mut picker = FilePicker::new();
+    picker.current_directory = root.clone();
+    picker.read_dir().unwrap();
+
+    let is_executable = |name: &str| {
+        picker
+            .files()
+            .iter()
+            .find(|entry| entry.name == name)
+            .unwrap()
+            .is_executable
+    };
+    assert!(is_executable("run.sh"));
+    assert!(!is_executable("plain.txt"));
     let _ = fs::remove_dir_all(&root);
 }
