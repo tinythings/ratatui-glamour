@@ -53,6 +53,26 @@ pub fn dashed_title(
     }
 }
 
+/// Render a full-width `/` bar across `area`, interpolating through `stops`.
+///
+/// This is the Crush-style slash separator used to bracket a banner.
+pub fn slash_bar(area: Rect, buf: &mut Buffer, stops: &[Color]) {
+    if area.width == 0 || stops.is_empty() {
+        return;
+    }
+    for (index, color) in crate::color::blend_1d(area.width as usize, stops)
+        .into_iter()
+        .enumerate()
+    {
+        buf.set_string(
+            area.x + index as u16,
+            area.y,
+            "/",
+            Style::default().fg(color),
+        );
+    }
+}
+
 /// Render a gradient `/` fill from `x_start` to the right edge of `area`.
 /// Useful when the label has already been painted with custom styles.
 pub fn gradient_rule(
