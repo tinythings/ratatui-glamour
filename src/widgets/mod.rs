@@ -1,8 +1,10 @@
+pub mod bigtext;
 pub mod cursor;
 pub mod filepicker;
 pub mod help;
 pub mod key;
 pub mod list;
+pub mod logo;
 pub mod paginator;
 pub mod passwordinput;
 pub mod progress;
