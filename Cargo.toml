@@ -9,6 +9,7 @@ description = "Lip Gloss-inspired terminal styling primitives for ratatui"
 
 [dependencies]
 crossterm = "0.29"
+font8x8 = "0.3.1"
 ratatui = { version = "0.30.0", features = ["all-widgets", "serde", "unstable"] }
 unicode-width = "0.2.2"
 
