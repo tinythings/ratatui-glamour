@@ -6,6 +6,7 @@ use ratatui::{
 use std::time::Duration;
 use std::{fs, path::PathBuf};
 
+use ratatui_glamour::surface::gradient_rounded_panel_lines_diagonal;
 use ratatui_glamour::table::{Column as DataColumn, Model as DataTable};
 use ratatui_glamour::widgets::{
     cursor::Model as Cursor,
@@ -49,6 +50,38 @@ fn paginator_arabic_view_formats_both_numbers() {
     paginator.page = 2;
     paginator.total_pages = 7;
     assert_eq!(paginator.view(), "3/7");
+}
+
+#[test]
+fn diagonal_rounded_panel_runs_first_stop_to_last_top_left_to_bottom_right() {
+    let stops = [
+        Color::Rgb(1, 0, 0),
+        Color::Rgb(0, 1, 0),
+        Color::Rgb(0, 0, 1),
+    ];
+    let lines = gradient_rounded_panel_lines_diagonal(11, 5, Style::default(), &stops);
+
+    assert_eq!(lines.len(), 5);
+    assert_eq!(
+        lines[0].spans[0].style.fg,
+        Some(stops[0]),
+        "top-left is the first stop"
+    );
+    assert_eq!(
+        lines[4].spans[10].style.fg,
+        Some(stops[2]),
+        "bottom-right is the last stop"
+    );
+    assert_eq!(
+        lines[0].spans[10].style.fg,
+        Some(stops[1]),
+        "top-right is the anti-diagonal middle"
+    );
+    assert_eq!(
+        lines[4].spans[0].style.fg,
+        Some(stops[1]),
+        "bottom-left is the anti-diagonal middle"
+    );
 }
 
 #[test]
@@ -237,6 +270,112 @@ fn textarea_set_value_resets_and_moves_cursor() {
     area.set_value("Test");
     assert_eq!(area.value(), "Test");
     assert_eq!(area.line(), 0);
+}
+
+#[test]
+fn textarea_search_is_disabled_by_default() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.set_value("foo foo");
+    area.handle_key(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    assert!(!area.search_open());
+    assert_eq!(area.value(), "foo foo");
+}
+
+#[test]
+fn textarea_find_counts_and_advances_with_wrap() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.search_enabled = true;
+    area.set_value("foo bar foo baz foo");
+    area.handle_key(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    for c in "foo".chars() {
+        area.handle_key(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    assert!(area.search_open());
+    assert_eq!(area.search.count(), 3);
+    assert_eq!(area.search.current, 0);
+    area.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(area.search.current, 1);
+    area.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(area.search.current, 2);
+    area.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(area.search.current, 0, "the active match wraps");
+}
+
+#[test]
+fn textarea_replace_current_then_replace_all() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.search_enabled = true;
+    area.set_value("a b a b a");
+    area.handle_key(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    area.handle_key(&KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    area.handle_key(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    area.handle_key(&KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    area.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(area.value(), "X b a b a");
+    area.handle_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL));
+    assert_eq!(area.value(), "X b X b X");
+}
+
+#[test]
+fn textarea_view_highlights_the_active_and_other_matches() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.search_enabled = true;
+    let mut styles = area.styles().clone();
+    styles.search_match = Style::default().fg(Color::Red);
+    styles.search_current = Style::default().fg(Color::Green);
+    area.set_styles(styles);
+    area.set_value("hello world hello");
+    area.handle_key(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    for c in "hello".chars() {
+        area.handle_key(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    let green = area
+        .view()
+        .iter()
+        .flat_map(|line| &line.spans)
+        .filter(|span| span.style.fg == Some(Color::Green))
+        .count();
+    let red = area
+        .view()
+        .iter()
+        .flat_map(|line| &line.spans)
+        .filter(|span| span.style.fg == Some(Color::Red))
+        .count();
+    assert_eq!(
+        green, 1,
+        "the active match is highlighted even under the cursor"
+    );
+    assert_eq!(red, 1, "the other match is highlighted");
+}
+
+#[test]
+fn textarea_cursor_does_not_duplicate_the_character() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.set_value("Foo\nBar");
+    area.move_to_begin();
+    let first: String = area.view().iter().map(|line| line.to_string()).collect();
+    assert!(first.contains("Foo"), "the first line is intact: {first}");
+    assert!(
+        !first.contains("FFoo"),
+        "the cursor replaces the character, it does not add one"
+    );
+
+    area.cursor_down();
+    area.cursor_start();
+    let second: String = area.view().iter().map(|line| line.to_string()).collect();
+    assert!(
+        second.contains("Bar"),
+        "the second line is intact: {second}"
+    );
+    assert!(
+        !second.contains("FFoo") && !second.contains("BBar"),
+        "moving normalizes both lines"
+    );
 }
 
 #[test]
@@ -882,4 +1021,94 @@ fn filepicker_marks_executables() {
     assert!(is_executable("run.sh"));
     assert!(!is_executable("plain.txt"));
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn bigtext_renders_half_block_glyphs_for_ascii() {
+    use ratatui_glamour::widgets::bigtext::{Font, Model as BigText};
+
+    let model = BigText::with_font(
+        "FORGE",
+        Font::Sans,
+        &[Color::Rgb(1, 2, 3), Color::Rgb(250, 251, 252)],
+    );
+
+    assert_eq!(model.height(), 3);
+    assert!(
+        model.width() >= 25,
+        "five glyphs plus gaps: {}",
+        model.width()
+    );
+    let cells = model
+        .view()
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .filter(|span| matches!(span.content.as_ref(), "█" | "▀" | "▄"))
+        .count();
+    assert!(
+        cells > 20,
+        "the banner paints half/full block cells: {cells}"
+    );
+
+    // Every printable ASCII character renders in both fonts.
+    let ascii: String = (0x20_u8..=0x7e).map(char::from).collect();
+    for font in [Font::Serif, Font::Sans] {
+        let rendered = BigText::with_font(&ascii, font, &[Color::Rgb(1, 2, 3)]);
+        assert_eq!(rendered.height() as usize, font.height());
+        assert!(rendered.width() > 0, "{font:?} renders the ASCII range");
+    }
+    // Glyphs are distinct across case.
+    assert_ne!(flat("A"), flat("a"));
+    assert_ne!(flat("0"), flat("O"));
+
+    let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 60, 5));
+    model.render(ratatui::layout::Rect::new(0, 0, 60, 5), &mut buffer);
+}
+
+/// Flattens one Sans word into text.
+fn flat(text: &str) -> String {
+    use ratatui_glamour::widgets::bigtext::{Font, Model as BigText};
+    BigText::with_font(text, Font::Sans, &[Color::Rgb(1, 2, 3)])
+        .view()
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn logo_brackets_the_title_with_fields() {
+    use ratatui_glamour::widgets::logo::{self, Palette};
+
+    let lines = logo::render(
+        "FORGE",
+        "solfiss",
+        "v0.1.0",
+        &Palette {
+            field: Color::Rgb(1, 2, 3),
+            charm: Color::Rgb(4, 5, 6),
+            version: Color::Rgb(7, 8, 9),
+            title_from: Color::Rgb(10, 11, 12),
+            title_to: Color::Rgb(13, 14, 15),
+        },
+    );
+
+    let text = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        lines.len() >= 7,
+        "field, meta, three title rows, field, blank"
+    );
+    assert!(text.contains('╱'), "the slash field is drawn: {text}");
+    assert!(text.contains("solfiss"));
+    assert!(text.contains("v0.1.0"));
+    assert!(
+        logo::width("FORGE", "solfiss", "v0.1.0") >= 20,
+        "the wordmark width is measured"
+    );
 }
