@@ -22,6 +22,25 @@ pub fn lerp_u8(from: u8, to: u8, t: f32) -> u8 {
     (from as f32 + (to as f32 - from as f32) * t).round() as u8
 }
 
+/// Sample a multi-stop gradient at normalized position `t` in `[0, 1]`.
+pub fn sample_gradient(stops: &[Color], t: f32) -> Color {
+    if stops.is_empty() {
+        return Color::Reset;
+    }
+    if stops.len() == 1 {
+        return stops[0];
+    }
+
+    let t = t.clamp(0.0, 1.0);
+    let segments = stops.len() - 1;
+    let scaled = t * segments as f32;
+    let idx = scaled.floor() as usize;
+    if idx >= segments {
+        return *stops.last().unwrap();
+    }
+    lerp_color(stops[idx], stops[idx + 1], scaled - idx as f32)
+}
+
 pub fn blend_1d(steps: usize, stops: &[Color]) -> Vec<Color> {
     if steps == 0 || stops.is_empty() {
         return Vec::new();

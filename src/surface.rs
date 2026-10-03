@@ -8,7 +8,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::border::Border;
-use crate::color::lerp_color;
+use crate::color::{lerp_color, sample_gradient};
 
 pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);
@@ -73,6 +73,56 @@ pub fn gradient_rounded_panel_lines(
     let colors = gradient_colors(perimeter.len(), stops);
     for (idx, (x, y, symbol)) in perimeter.into_iter().enumerate() {
         grid[y as usize][x as usize] = Span::styled(symbol.to_string(), fill_style.fg(colors[idx]));
+    }
+
+    grid.into_iter().map(Line::from).collect()
+}
+
+pub fn render_gradient_rounded_panel_diagonal(
+    buf: &mut Buffer,
+    area: Rect,
+    fill_style: Style,
+    stops: &[ratatui::style::Color],
+) -> Rect {
+    let lines = gradient_rounded_panel_lines_diagonal(
+        area.width as usize,
+        area.height as usize,
+        fill_style,
+        stops,
+    );
+    for (row, line) in lines.into_iter().enumerate() {
+        buf.set_line(area.x, area.y + row as u16, &line, area.width);
+    }
+
+    Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    )
+}
+
+/// Like [`gradient_rounded_panel_lines`], but colors the border as a diagonal
+/// gradient: the first stop sits at the top-left, the last at the bottom-right,
+/// with the stops in between across the anti-diagonal.
+pub fn gradient_rounded_panel_lines_diagonal(
+    width: usize,
+    height: usize,
+    fill_style: Style,
+    stops: &[ratatui::style::Color],
+) -> Vec<Line<'static>> {
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+
+    let mut grid = vec![vec![Span::styled(" ", fill_style); width]; height];
+    let area = Rect::new(0, 0, width as u16, height as u16);
+    let x_span = width.saturating_sub(1).max(1) as f32;
+    let y_span = height.saturating_sub(1).max(1) as f32;
+    for (x, y, symbol) in rounded_perimeter(area) {
+        let t = 0.5 * (x as f32 / x_span + y as f32 / y_span);
+        let color = sample_gradient(stops, t);
+        grid[y as usize][x as usize] = Span::styled(symbol.to_string(), fill_style.fg(color));
     }
 
     grid.into_iter().map(Line::from).collect()
