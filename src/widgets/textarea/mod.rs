@@ -1,8 +1,12 @@
+mod search;
+
+pub use search::{Match, Search, SearchField, SearchMode};
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -44,6 +48,8 @@ pub struct KeyMap {
     pub lowercase_word_forward: Binding,
     pub capitalize_word_forward: Binding,
     pub transpose_character_backward: Binding,
+    pub find: Binding,
+    pub replace: Binding,
 }
 
 impl Default for KeyMap {
@@ -73,6 +79,8 @@ impl Default for KeyMap {
             lowercase_word_forward: Binding::new([key::with_keys(&["alt+l"])]),
             uppercase_word_forward: Binding::new([key::with_keys(&["alt+u"])]),
             transpose_character_backward: Binding::new([key::with_keys(&["ctrl+t"])]),
+            find: Binding::new([key::with_keys(&["ctrl+f"])]),
+            replace: Binding::new([key::with_keys(&["ctrl+h"])]),
         }
     }
 }
@@ -102,11 +110,30 @@ impl Default for CursorStyle {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Styles {
     pub focused: StyleState,
     pub blurred: StyleState,
     pub cursor: CursorStyle,
+    /// The style of every search match.
+    pub search_match: Style,
+    /// The style of the active search match.
+    pub search_current: Style,
+}
+
+impl Default for Styles {
+    fn default() -> Self {
+        Self {
+            focused: StyleState::default(),
+            blurred: StyleState::default(),
+            cursor: CursorStyle::default(),
+            search_match: Style::default().fg(Color::Yellow),
+            search_current: Style::default()
+                .bg(Color::Yellow)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -130,6 +157,10 @@ pub struct Model {
     pub dynamic_height: bool,
     pub min_height: usize,
     pub max_content_height: usize,
+    /// Whether the find/replace keys are enabled for this editor.
+    pub search_enabled: bool,
+    /// The current find/replace state.
+    pub search: Search,
     styles: Styles,
     prompt_func: Option<PromptFunc>,
     prompt_width: usize,
@@ -167,6 +198,8 @@ impl Model {
             dynamic_height: false,
             min_height: 1,
             max_content_height: 0,
+            search_enabled: false,
+            search: Search::default(),
             styles: Styles::default(),
             prompt_func: None,
             prompt_width: 0,
@@ -277,6 +310,7 @@ impl Model {
         self.value = vec![Vec::new()];
         self.col = 0;
         self.row = 0;
+        self.search = Search::default();
         self.viewport.goto_top();
         self.recalculate_height();
     }
@@ -299,6 +333,10 @@ impl Model {
 
     pub fn handle_key(&mut self, event: &KeyEvent) {
         if !self.focus {
+            return;
+        }
+        if self.search_enabled && self.handle_search_key(event) {
+            self.recalculate_height();
             return;
         }
         match event.code {
@@ -370,6 +408,245 @@ impl Model {
         self.recalculate_height();
     }
 
+    /// Whether the search bar is currently open.
+    pub fn search_open(&self) -> bool {
+        self.search.open()
+    }
+
+    /// Handles one key while the search bar is open or when a find key is pressed.
+    fn handle_search_key(&mut self, event: &KeyEvent) -> bool {
+        if self.search.open() {
+            return self.handle_open_search(event);
+        }
+        if key::matches(event, [&self.key_map.find]) {
+            self.search.mode = SearchMode::Find;
+            self.search.field = SearchField::Query;
+            self.refresh_search();
+            self.jump_to_match();
+            return true;
+        }
+        if key::matches(event, [&self.key_map.replace]) {
+            self.search.mode = SearchMode::Replace;
+            self.search.field = SearchField::Query;
+            self.refresh_search();
+            self.jump_to_match();
+            return true;
+        }
+        false
+    }
+
+    fn handle_open_search(&mut self, event: &KeyEvent) -> bool {
+        if event.code == KeyCode::Esc {
+            self.close_search();
+            return true;
+        }
+        let ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+        if event.code == KeyCode::Enter && ctrl {
+            if self.search.mode == SearchMode::Replace {
+                let replacement = self.search.replacement.clone();
+                self.search.replace_all(&mut self.value, &replacement);
+                self.refresh_search();
+            }
+            return true;
+        }
+        if event.code == KeyCode::Tab || event.code == KeyCode::BackTab {
+            if self.search.mode == SearchMode::Replace {
+                self.search.field = match self.search.field {
+                    SearchField::Query => SearchField::Replacement,
+                    SearchField::Replacement => SearchField::Query,
+                };
+            }
+            return true;
+        }
+        match event.code {
+            KeyCode::Enter => {
+                let replacing = self.search.mode == SearchMode::Replace
+                    && self.search.field == SearchField::Replacement;
+                if replacing {
+                    let replacement = self.search.replacement.clone();
+                    self.search.replace_current(&mut self.value, &replacement);
+                } else {
+                    self.search.advance(1);
+                }
+                self.jump_to_match();
+                true
+            }
+            KeyCode::Backspace => {
+                self.edit_search_field(|value| {
+                    value.pop();
+                });
+                true
+            }
+            KeyCode::Char(c) if !ctrl && !event.modifiers.contains(KeyModifiers::ALT) => {
+                self.edit_search_field(|value| value.push(c));
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn edit_search_field(&mut self, edit: impl FnOnce(&mut String)) {
+        match self.search.field {
+            SearchField::Query => {
+                edit(&mut self.search.query);
+                self.search.current = 0;
+                self.refresh_search();
+                self.jump_to_match();
+            }
+            SearchField::Replacement => edit(&mut self.search.replacement),
+        }
+    }
+
+    fn close_search(&mut self) {
+        self.search = Search::default();
+    }
+
+    fn refresh_search(&mut self) {
+        self.search.recompute(&self.value);
+    }
+
+    fn jump_to_match(&mut self) {
+        if let Some(found) = self.search.current_match() {
+            self.row = found.row.min(self.value.len().saturating_sub(1));
+            self.set_cursor_column(found.col);
+        }
+    }
+
+    fn search_bar_height(&self) -> u16 {
+        match self.search.mode {
+            SearchMode::Closed => 0,
+            SearchMode::Find => 1,
+            SearchMode::Replace => 2,
+        }
+    }
+
+    fn render_search_bar(&self, area: Rect, buf: &mut Buffer, top: usize) {
+        let style = self.active_style();
+        let find_focused = self.search.field == SearchField::Query;
+        let count = self.search.count();
+        let current = if count == 0 {
+            0
+        } else {
+            self.search.current + 1
+        };
+        let find_marker = if find_focused {
+            style.prompt
+        } else {
+            style.placeholder
+        };
+        let find = vec![
+            Span::styled(
+                if find_focused { "find> " } else { "find  " }.to_string(),
+                find_marker,
+            ),
+            Span::styled(self.search.query.clone(), style.text),
+            Span::styled(format!("  {current}/{count}"), style.placeholder),
+        ];
+        let y = area.y + top as u16;
+        buf.set_line(area.x, y, &Line::from(find), area.width);
+        if self.search.mode == SearchMode::Replace {
+            let replace_focused = self.search.field == SearchField::Replacement;
+            let replace_marker = if replace_focused {
+                style.prompt
+            } else {
+                style.placeholder
+            };
+            let replace = vec![
+                Span::styled(
+                    if replace_focused { "repl> " } else { "repl  " }.to_string(),
+                    replace_marker,
+                ),
+                Span::styled(self.search.replacement.clone(), style.text),
+                Span::styled(
+                    "  ctrl+enter replace all · tab switch · esc close",
+                    style.placeholder,
+                ),
+            ];
+            buf.set_line(area.x, y + 1, &Line::from(replace), area.width);
+        }
+    }
+
+    fn push_search_spans(&self, spans: &mut Vec<Span<'static>>, skip: usize, counter: &mut usize) {
+        if self.search.closed() || self.search.query.is_empty() {
+            return;
+        }
+        let needle = self.search.query.as_str();
+        let mut out: Vec<Span<'static>> = Vec::with_capacity(spans.len());
+        for (index, span) in spans.drain(..).enumerate() {
+            if index < skip {
+                out.push(span);
+                continue;
+            }
+            let style = span.style;
+            let text = span.content.into_owned();
+            let mut rest = text.as_str();
+            while let Some(position) = rest.find(needle) {
+                if position > 0 {
+                    out.push(Span::styled(rest[..position].to_string(), style));
+                }
+                let highlight = if *counter == self.search.current {
+                    self.styles.search_current
+                } else {
+                    self.styles.search_match
+                };
+                out.push(Span::styled(needle.to_string(), highlight));
+                *counter += 1;
+                rest = &rest[position + needle.len()..];
+            }
+            if !rest.is_empty() {
+                out.push(Span::styled(rest.to_string(), style));
+            }
+        }
+        *spans = out;
+    }
+
+    /// Splits already-highlighted spans at `offset` chars and inserts the cursor.
+    fn split_with_cursor(
+        &self,
+        spans: Vec<Span<'static>>,
+        offset: usize,
+        cursor_char: char,
+        cursor_style: Style,
+    ) -> Vec<Span<'static>> {
+        let mut out = Vec::with_capacity(spans.len() + 2);
+        let mut count = 0usize;
+        let mut inserted = false;
+        for span in spans {
+            if inserted {
+                out.push(span);
+                continue;
+            }
+            let style = span.style;
+            let text = span.content.into_owned();
+            let len = text.chars().count();
+            if count + len > offset {
+                let local = offset - count;
+                let before: String = text.chars().take(local).collect();
+                let after: String = text.chars().skip(local + 1).collect();
+                if !before.is_empty() {
+                    out.push(Span::styled(before, style));
+                }
+                out.push(Span::styled(cursor_char.to_string(), cursor_style));
+                if !after.is_empty() {
+                    out.push(Span::styled(after, style));
+                }
+                inserted = true;
+            } else if count + len == offset {
+                out.push(Span::styled(text, style));
+                out.push(Span::styled(cursor_char.to_string(), cursor_style));
+                inserted = true;
+                count += len;
+            } else {
+                out.push(Span::styled(text, style));
+                count += len;
+            }
+        }
+        if !inserted {
+            out.push(Span::styled(cursor_char.to_string(), cursor_style));
+        }
+        out
+    }
+
     pub fn line_info(&self) -> LineInfo {
         let grid = wrap(&self.value[self.row], self.content_width().max(1));
         let mut counter = 0usize;
@@ -416,6 +693,7 @@ impl Model {
         let active = self.active_style();
         let mut lines = Vec::new();
         let mut display_line = 0usize;
+        let mut search_counter = 0usize;
         let line_info = self.line_info();
 
         for (logical_idx, row) in self.value.iter().enumerate() {
@@ -459,11 +737,11 @@ impl Model {
                     }
                 }
 
+                let mut text_spans: Vec<Span<'static>> =
+                    vec![Span::styled(text.iter().collect::<String>(), text_style)];
+                self.push_search_spans(&mut text_spans, 0, &mut search_counter);
+
                 if self.row == logical_idx && line_info.row_offset == wrapped_idx {
-                    let before: String = text[..line_info.column_offset.min(text.len())]
-                        .iter()
-                        .collect();
-                    spans.push(Span::styled(before, text_style));
                     let cursor_ch = if self.col >= row.len()
                         && line_info.char_offset >= self.content_width().max(1)
                     {
@@ -478,16 +756,15 @@ impl Model {
                     } else {
                         text_style
                     };
-                    spans.push(Span::styled(cursor_ch.to_string(), cursor_style));
-                    let after: String = text
-                        .get(line_info.column_offset + 1..)
-                        .unwrap_or(&[])
-                        .iter()
-                        .collect();
-                    spans.push(Span::styled(after, text_style));
-                } else {
-                    spans.push(Span::styled(text.iter().collect::<String>(), text_style));
+                    text_spans = self.split_with_cursor(
+                        text_spans,
+                        line_info.column_offset.min(text.len()),
+                        cursor_ch,
+                        cursor_style,
+                    );
                 }
+
+                spans.extend(text_spans);
 
                 let padding = self
                     .content_width()
@@ -522,14 +799,19 @@ impl Model {
     }
 
     pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        let bar = self.search_bar_height();
+        let text_height = (area.height as usize).saturating_sub(bar as usize);
         let lines = self.view();
         for (i, line) in lines
             .into_iter()
             .skip(self.viewport.y_offset())
-            .take(area.height as usize)
+            .take(text_height)
             .enumerate()
         {
             buf.set_line(area.x, area.y + i as u16, &line, area.width);
+        }
+        if bar > 0 {
+            self.render_search_bar(area, buf, text_height);
         }
     }
 
