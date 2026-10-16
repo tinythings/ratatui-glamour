@@ -1033,7 +1033,7 @@ fn bigtext_renders_half_block_glyphs_for_ascii() {
         &[Color::Rgb(1, 2, 3), Color::Rgb(250, 251, 252)],
     );
 
-    assert_eq!(model.height(), 3);
+    assert_eq!(model.height(), 5);
     assert!(
         model.width() >= 25,
         "five glyphs plus gaps: {}",
@@ -1101,8 +1101,8 @@ fn logo_brackets_the_title_with_fields() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        lines.len() >= 7,
-        "field, meta, three title rows, field, blank"
+        lines.len() >= 9,
+        "field, meta, five title rows, field, blank"
     );
     assert!(text.contains('╱'), "the slash field is drawn: {text}");
     assert!(text.contains("solfiss"));

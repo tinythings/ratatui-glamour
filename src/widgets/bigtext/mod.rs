@@ -1,7 +1,7 @@
 //! Large block-letter text filled with a gradient.
 //!
-//! Two fonts are available (see [`Font`]): the 8×8 Serif bitmap and a 3-row
-//! half-block Sans font in the Crush wordmark style. Any string renders.
+//! Two fonts are available (see [`Font`]): the 8×8 Serif bitmap and a 5-row
+//! block Sans font in the Crush wordmark style. Any string renders.
 
 mod font;
 
