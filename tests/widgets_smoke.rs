@@ -126,7 +126,7 @@ fn textinput_word_delete_backward() {
     input.focus();
     input.set_value("foo bar baz");
     input.handle_key(&KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
-    assert_eq!(input.value(), "foo bar ");
+    assert_eq!(input.value(), "foo bar");
 }
 
 #[test]
@@ -208,6 +208,43 @@ fn textarea_inserts_multiple_lines() {
     assert_eq!(area.value(), "Foo\nBar");
     assert_eq!(area.line(), 1);
     assert_eq!(area.column(), 3);
+}
+
+#[test]
+fn textarea_normalizes_trailing_whitespace_on_paste_and_read() {
+    let mut area = TextArea::new();
+    area.focus();
+    area.handle_paste("first   \r\nsecond\t \nthird");
+    assert_eq!(area.value(), "first\nsecond\nthird");
+    // CR-only line breaks are line breaks too, and each line is trimmed.
+    area.reset();
+    area.handle_paste("alpha   \rbeta\t\rgamma   ");
+    assert_eq!(area.value(), "alpha\nbeta\ngamma");
+    // Normalization also applies to typed text when it is read.
+    area.reset();
+    area.insert_string("keep   ");
+    assert_eq!(area.value(), "keep");
+}
+
+#[test]
+fn textinput_paste_flattens_and_chops() {
+    let mut input = TextInput::new();
+    input.focus();
+    input.handle_paste("hello   ");
+    assert_eq!(input.value(), "hello");
+    input.set_value("");
+    input.handle_paste("a\nb\tc");
+    assert_eq!(input.value(), "a b c");
+}
+
+#[test]
+fn paste_is_ignored_while_unfocused() {
+    let mut input = TextInput::new();
+    input.handle_paste("nope");
+    assert_eq!(input.value(), "");
+    let mut area = TextArea::new();
+    area.handle_paste("nope");
+    assert_eq!(area.value(), "");
 }
 
 fn cursor_style(area: &TextArea, ch: char) -> Style {
@@ -1063,6 +1100,49 @@ fn bigtext_renders_half_block_glyphs_for_ascii() {
 
     let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 60, 5));
     model.render(ratatui::layout::Rect::new(0, 0, 60, 5), &mut buffer);
+}
+
+#[test]
+fn sans_glyphs_share_half_block_top_and_bottom() {
+    use ratatui_glamour::widgets::bigtext::Font;
+
+    // Every printable glyph is exactly five rows, the top row uses only lower-half
+    // blocks and the bottom row only upper-half blocks, so all glyphs keep the same
+    // visual height (no vertical stretch).
+    for code in 0x20_u8..=0x7e {
+        let ch = char::from(code);
+        let rows = Font::Sans.rows(&ch.to_string());
+        assert_eq!(rows.len(), 5, "glyph {ch:?} must be 5 rows");
+        assert!(
+            !rows[0].contains('█'),
+            "glyph {ch:?} top row must be a lower-half stroke: {:?}",
+            rows[0]
+        );
+        assert!(
+            !rows[4].contains('█'),
+            "glyph {ch:?} bottom row must be an upper-half stroke: {:?}",
+            rows[4]
+        );
+    }
+}
+
+#[test]
+fn sans_b_does_not_read_as_eight() {
+    use ratatui_glamour::widgets::bigtext::Font;
+
+    let b = Font::Sans.rows("B");
+    let eight = Font::Sans.rows("8");
+    assert_ne!(b, eight, "B and 8 must differ");
+    assert_eq!(
+        b[2], "████ ",
+        "B keeps its middle clear on the right: {:?}",
+        b[2]
+    );
+    assert_eq!(
+        eight[2], " ███ ",
+        "8 keeps its indented middle: {:?}",
+        eight[2]
+    );
 }
 
 /// Flattens one Sans word into text.

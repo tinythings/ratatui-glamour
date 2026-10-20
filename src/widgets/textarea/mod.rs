@@ -264,6 +264,16 @@ impl Model {
         self.recalculate_height();
     }
 
+    /// Inserts bracketed-paste text: normalizes CRLF and chops trailing horizontal
+    /// whitespace from each line (terminals pad copied lines to the panel width).
+    /// Content is never truncated. The host app routes paste events here.
+    pub fn handle_paste(&mut self, text: &str) {
+        if !self.focus {
+            return;
+        }
+        self.insert_string(&normalize_input(text));
+    }
+
     pub fn insert_rune(&mut self, r: char) {
         self.insert_runes(&[r]);
         self.recalculate_height();
@@ -272,7 +282,12 @@ impl Model {
     pub fn value(&self) -> String {
         self.value
             .iter()
-            .map(|line| line.iter().collect::<String>())
+            .map(|line| {
+                line.iter()
+                    .collect::<String>()
+                    .trim_end_matches([' ', '\t'])
+                    .to_string()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -1277,6 +1292,19 @@ pub struct LineInfo {
 
 fn sanitize_multiline(s: &str) -> String {
     s.replace('\r', "")
+}
+
+/// Input normalization, shared by every text input path (textarea and textinput, paste and
+/// value reads): every line ending (CRLF, lone CR, LF) becomes a newline and trailing horizontal
+/// whitespace is chopped from each line. Terminals pad copied lines to the panel width and may
+/// separate them with CR only, so pasted input arrives with padding that must never reach the
+/// host. Never truncates content.
+pub fn normalize_input(text: &str) -> String {
+    let text = text.replace("\r\n", "\n");
+    text.split(['\r', '\n'])
+        .map(|line| line.trim_end_matches([' ', '\t']))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn char_width(ch: char) -> usize {

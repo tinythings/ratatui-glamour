@@ -188,7 +188,11 @@ impl Model {
         self.handle_overflow();
     }
     pub fn value(&self) -> String {
-        self.value.iter().collect()
+        self.value
+            .iter()
+            .collect::<String>()
+            .trim_end_matches([' ', '\t'])
+            .to_string()
     }
     pub fn position(&self) -> usize {
         self.pos
@@ -207,6 +211,19 @@ impl Model {
     pub fn reset(&mut self) {
         self.value.clear();
         self.set_cursor(0);
+    }
+
+    /// Inserts bracketed-paste text as a single line: flattens newlines and tabs,
+    /// chops trailing horizontal whitespace. Content is never truncated. The host
+    /// app routes paste events here.
+    pub fn handle_paste(&mut self, text: &str) {
+        if !self.focus {
+            return;
+        }
+        let normalized = crate::widgets::textarea::normalize_input(text);
+        let flattened = sanitize_single_line(&normalized);
+        let chars: Vec<char> = flattened.trim_end_matches([' ', '\t']).chars().collect();
+        self.insert_chars(&chars);
     }
 
     pub fn set_value(&mut self, s: &str) {
