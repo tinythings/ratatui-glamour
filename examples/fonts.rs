@@ -1,36 +1,73 @@
-//! Prints both big-text fonts over the full printable ASCII range.
+//! Prints every printable ASCII glyph for both big-text fonts in labelled grids.
 
-use ratatui::style::Color;
-use ratatui_glamour::widgets::bigtext::{Font, Model};
+use ratatui_glamour::widgets::bigtext::Font;
 
-const STOPS: [Color; 2] = [Color::Rgb(0x6b, 0x50, 0xff), Color::Rgb(0xff, 0x60, 0xff)];
+const COLUMNS: usize = 8;
 
-fn print(font: Font, label: &str, text: &str) {
-    println!("--- {label} ---");
-    for line in Model::with_font(text, font, &STOPS).view() {
-        println!(
-            "{}",
-            line.spans
+fn label(character: char) -> String {
+    if character == ' ' {
+        "space".to_string()
+    } else {
+        character.to_string()
+    }
+}
+
+fn print_group(font: Font, title: &str, text: &str) {
+    let glyphs = text
+        .chars()
+        .map(|character| (label(character), font.rows(&character.to_string())))
+        .collect::<Vec<_>>();
+    if glyphs.is_empty() {
+        return;
+    }
+
+    println!("{title}");
+
+    let cell_width = glyphs
+        .iter()
+        .flat_map(|(label, rows)| {
+            std::iter::once(label.chars().count()).chain(rows.iter().map(|row| row.chars().count()))
+        })
+        .max()
+        .unwrap_or(1)
+        + 3;
+
+    for chunk in glyphs.chunks(COLUMNS) {
+        let labels = chunk
+            .iter()
+            .map(|(label, _)| format!("{label:<cell_width$}"))
+            .collect::<String>();
+        println!("{}", labels.trim_end());
+
+        for row_index in 0..font.height() {
+            let row = chunk
                 .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>()
-        );
+                .map(|(_, rows)| format!("{:<cell_width$}", rows[row_index]))
+                .collect::<String>();
+            println!("{}", row.trim_end());
+        }
+        println!();
+    }
+}
+
+fn print_font(font: Font) {
+    println!("================ {font:?} ================\n");
+
+    print_group(font, "Space", " ");
+    print_group(font, "Uppercase", "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    print_group(font, "Lowercase", "abcdefghijklmnopqrstuvwxyz");
+    print_group(font, "Digits", "0123456789");
+    print_group(font, "Symbols", "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~");
+
+    println!("Wordmark");
+    for row in font.rows("ROBERTO") {
+        println!("{row}");
     }
     println!();
 }
 
 fn main() {
-    let groups = [
-        ("upper", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-        ("lower", "abcdefghijklmnopqrstuvwxyz"),
-        ("digits", "0123456789"),
-        ("symbols", "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"),
-    ];
-
-    for font in [Font::Serif, Font::Sans] {
-        println!("================ {font:?} ================\n");
-        for (label, text) in groups {
-            print(font, label, text);
-        }
+    for font in [Font::Sans, Font::Serif] {
+        print_font(font);
     }
 }
