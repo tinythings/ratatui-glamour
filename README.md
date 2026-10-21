@@ -134,6 +134,14 @@ Run the widget sampler:
 cargo run --example widgets
 ```
 
+Run the font sampler:
+
+```bash
+cargo run --example fonts
+```
+
+The font sampler prints every printable ASCII glyph for both `Sans` and `Serif` in labelled grids, followed by a `ROBERTO` wordmark in each font.
+
 The showcase includes:
 
 - gradient ramps and 2D meshes

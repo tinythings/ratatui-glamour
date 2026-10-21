@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "ratatui-glamour"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "crossterm 0.29.0",
  "font8x8",

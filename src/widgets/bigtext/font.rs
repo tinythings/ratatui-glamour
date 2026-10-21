@@ -104,24 +104,24 @@ fn sans_rows(text: &str) -> Vec<String> {
 fn sans(character: char) -> [&'static str; 5] {
     match character {
         'A' => [" ▄▄▄ ", "█   █", "█████", "█   █", "▀   ▀"],
-        'B' => ["▄▄▄▄ ", "█   █", "████ ", "█   █", "▀▀▀▀ "],
+        'B' => ["▄▄▄▄ ", "█   █", "█▀▀▀▄", "█   █", "▀▀▀▀ "],
         'C' => [" ▄▄▄▄", "█    ", "█    ", "█    ", " ▀▀▀▀"],
         'D' => ["▄▄▄▄ ", "█   █", "█   █", "█   █", "▀▀▀▀ "],
-        'E' => ["▄▄▄▄▄", "█    ", "████ ", "█    ", "▀▀▀▀▀"],
-        'F' => ["▄▄▄▄▄", "█    ", "████ ", "█    ", "▀    "],
+        'E' => ["▄▄▄▄▄", "█    ", "█▀▀▀ ", "█    ", "▀▀▀▀▀"],
+        'F' => ["▄▄▄▄▄", "█    ", "█▀▀▀ ", "█    ", "▀    "],
         'G' => [" ▄▄▄▄", "█    ", "█  ██", "█   █", " ▀▀▀▀"],
-        'H' => ["▄   ▄", "█   █", "█████", "█   █", "▀   ▀"],
+        'H' => ["▄   ▄", "█   █", "█▀▀▀█", "█   █", "▀   ▀"],
         'I' => ["▄▄▄▄▄", "  █  ", "  █  ", "  █  ", "▀▀▀▀▀"],
         'J' => ["  ▄▄▄", "   █ ", "   █ ", "█  █ ", " ▀▀  "],
-        'K' => ["▄   ▄", "█  █ ", "███  ", "█  █ ", "▀   ▀"],
+        'K' => ["▄   ▄", "█  █ ", "█▀▀▀█", "█   █", "▀   ▀"],
         'L' => ["▄    ", "█    ", "█    ", "█    ", "▀▀▀▀▀"],
         'M' => ["▄   ▄", "██ ██", "█ █ █", "█   █", "▀   ▀"],
         'N' => ["▄   ▄", "██  █", "█ █ █", "█  ██", "▀   ▀"],
         'O' => [" ▄▄▄ ", "█   █", "█   █", "█   █", " ▀▀▀ "],
-        'P' => ["▄▄▄▄ ", "█   █", "████ ", "█    ", "▀    "],
+        'P' => ["▄▄▄▄ ", "█   █", "█▀▀▀ ", "█    ", "▀    "],
         'Q' => [" ▄▄▄ ", "█   █", "█   █", "█  ██", " ▀▀▀▀"],
-        'R' => ["▄▄▄▄ ", "█   █", "████ ", "█  █ ", "▀   ▀"],
-        'S' => [" ▄▄▄▄", "█    ", " ███ ", "    █", "▀▀▀▀ "],
+        'R' => ["▄▄▄▄ ", "█   █", "█▀▀▀▄", "█   █", "▀   ▀"],
+        'S' => [" ▄▄▄ ", "█    ", " ▀▀▀▄", "    █", " ▀▀▀ "],
         'T' => ["▄▄▄▄▄", "  █  ", "  █  ", "  █  ", "  ▀  "],
         'U' => ["▄   ▄", "█   █", "█   █", "█   █", " ▀▀▀ "],
         'V' => ["▄   ▄", "█   █", "█   █", " █ █ ", "  ▀  "],
@@ -199,5 +199,77 @@ fn sans(character: char) -> [&'static str; 5] {
         '}' => ["▄  ", " █ ", " ██", " █ ", "▀  "],
         '~' => ["   ", "█ █", " █ ", "   ", "   "],
         _ => ["▄▄▄", "███", "███", "███", "▀▀▀"],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sans_uppercase_r_has_a_straight_leg() {
+        let rows = Font::Sans.rows("R");
+        assert_eq!(rows[0], "▄▄▄▄ ");
+        assert_eq!(rows[1], "█   █");
+        assert_eq!(rows[2], "█▀▀▀▄");
+        assert_eq!(rows[2].chars().last(), Some('▄'));
+        assert_eq!(rows[3], "█   █");
+        assert_eq!(rows[4], "▀   ▀");
+    }
+
+    #[test]
+    fn sans_uppercase_b_joins_the_lower_bowl() {
+        let rows = Font::Sans.rows("B");
+        assert_eq!(rows[2], "█▀▀▀▄");
+        assert_eq!(rows[2].chars().last(), Some('▄'));
+    }
+
+    #[test]
+    fn sans_uppercase_e_has_a_short_thin_middle() {
+        let rows = Font::Sans.rows("E");
+        assert_eq!(rows[2], "█▀▀▀ ");
+        assert_eq!(rows[2].chars().filter(|cell| *cell != ' ').count(), 4);
+    }
+
+    #[test]
+    fn sans_uppercase_f_middle_matches_e() {
+        let f = Font::Sans.rows("F");
+        let e = Font::Sans.rows("E");
+        assert_eq!(f[2], "█▀▀▀ ");
+        assert_eq!(f[2], e[2]);
+    }
+
+    #[test]
+    fn sans_uppercase_h_has_full_stems_and_a_thin_bar() {
+        let rows = Font::Sans.rows("H");
+        assert_eq!(rows[2], "█▀▀▀█");
+        assert_eq!(rows[2].chars().next(), Some('█'));
+        assert_eq!(rows[2].chars().last(), Some('█'));
+    }
+
+    #[test]
+    fn sans_uppercase_p_has_no_bottom_right_corner() {
+        let rows = Font::Sans.rows("P");
+        assert_eq!(rows[2], "█▀▀▀ ");
+        assert_eq!(rows[2].chars().last(), Some(' '));
+    }
+
+    #[test]
+    fn sans_uppercase_s_has_a_thin_middle_and_joins_the_right_stem() {
+        let rows = Font::Sans.rows("S");
+        assert_eq!(rows[0], " ▄▄▄ ");
+        assert_eq!(rows[2], " ▀▀▀▄");
+        assert_eq!(rows[2].chars().last(), Some('▄'));
+        assert_eq!(rows[4], " ▀▀▀ ");
+        assert_eq!(rows[4].chars().next(), Some(' '));
+        assert_eq!(rows[4].chars().last(), Some(' '));
+    }
+
+    #[test]
+    fn sans_uppercase_k_has_the_upper_diagonal_and_full_right_joint() {
+        let rows = Font::Sans.rows("K");
+        assert_eq!(rows[1], "█  █ ");
+        assert_eq!(rows[2], "█▀▀▀█");
+        assert_eq!(rows[3], "█   █");
     }
 }
