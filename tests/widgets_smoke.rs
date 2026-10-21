@@ -1134,7 +1134,7 @@ fn sans_b_does_not_read_as_eight() {
     let eight = Font::Sans.rows("8");
     assert_ne!(b, eight, "B and 8 must differ");
     assert_eq!(
-        b[2], "████ ",
+        b[2], "█▀▀▀▄",
         "B keeps its middle clear on the right: {:?}",
         b[2]
     );
