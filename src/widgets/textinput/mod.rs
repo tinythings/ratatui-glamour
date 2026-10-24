@@ -123,6 +123,8 @@ pub struct Model {
     pub err: Option<String>,
     pub prompt: String,
     pub placeholder: String,
+    /// Whether to show the cursor over the first character of an active placeholder.
+    pub show_placeholder_cursor: bool,
     pub echo_mode: EchoMode,
     pub echo_character: char,
     pub char_limit: usize,
@@ -154,6 +156,7 @@ impl Model {
             err: None,
             prompt: "> ".to_string(),
             placeholder: String::new(),
+            show_placeholder_cursor: true,
             echo_mode: EchoMode::Normal,
             echo_character: '*',
             char_limit: 0,
@@ -412,7 +415,7 @@ impl Model {
     fn placeholder_view(&self, prompt: Span<'static>, styles: &StyleState) -> Line<'static> {
         let text = placeholder_text(&self.placeholder, self.width);
         let mut spans = vec![prompt];
-        if self.focus && !text.is_empty() {
+        if self.focus && self.show_placeholder_cursor && !text.is_empty() {
             let mut chars = text.chars();
             if let Some(first) = chars.next() {
                 let mut vc = self.virtual_cursor.clone();

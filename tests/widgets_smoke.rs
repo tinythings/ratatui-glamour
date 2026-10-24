@@ -162,6 +162,29 @@ fn textinput_focused_placeholder_uses_cursor_cell() {
 }
 
 #[test]
+fn textinput_can_keep_a_focused_placeholder_muted_until_typing() {
+    let mut input = TextInput::new();
+    input.focus();
+    input.show_placeholder_cursor = false;
+    input.placeholder = "Name of the tool".into();
+    input.set_width(32);
+
+    let view = input.view();
+    assert_eq!(view.spans[1].style.fg, Some(Color::Indexed(240)));
+    assert_eq!(view.spans[1].style.bg, None);
+    assert!(
+        !view.spans[1]
+            .style
+            .add_modifier
+            .contains(Modifier::REVERSED)
+    );
+
+    input.handle_key(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+    assert_eq!(input.value(), "h");
+    assert!(!input.view().to_string().contains("Name of the tool"));
+}
+
+#[test]
 fn textinput_blurred_placeholder_does_not_use_cursor_cell() {
     let mut input = TextInput::new();
     input.placeholder = "hello".into();
