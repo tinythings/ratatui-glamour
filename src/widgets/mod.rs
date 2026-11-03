@@ -1,5 +1,6 @@
 pub mod bigtext;
 pub mod cursor;
+pub mod diff;
 pub mod filepicker;
 pub mod help;
 pub mod key;

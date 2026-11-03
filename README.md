@@ -14,6 +14,7 @@ This crate is not a 1:1 port of Lip Gloss. It is a Rust-native, `ratatui`-friend
 - A table widget with wrapping, scrolling, and per-cell styling hooks
 - Layered composition with hit-testing and ANSI/text export
 - Surface helpers for centered panels, patterned fills, tabs, and rounded gradient panels
+- Side-by-side and unified file diffs with line numbers, context, and themed styles
 - Bubble-style stateful widgets for keys, help, spinners, paginators, viewports, inputs, and lists
 
 ## Screenshots
@@ -29,7 +30,7 @@ This crate is not a 1:1 port of Lip Gloss. It is a Rust-native, `ratatui`-friend
 ```toml
 [dependencies]
 ratatui = "0.30"
-ratatui-glamour = "0.1"
+ratatui-glamour = "0.8"
 ```
 
 ## Quick Example
@@ -108,6 +109,25 @@ fn render(frame: &mut Frame) {
 }
 ```
 
+## Diff rendering
+
+```rust
+use ratatui_glamour::widgets::diff::Model;
+
+let diff = Model::from_contents(
+    "let answer = 41;\n",
+    "let answer = 42;\n",
+)
+.file_name("src/main.rs")
+.width(100);
+
+let lines = diff.view();
+```
+
+Auto layout is the default: below 80 columns the diff renders as a single-column stacked view, and at 80+ columns it renders side by side. Use `.split()`, `.stacked()`, or `.unified()` to override the threshold, `.context_lines(n)` to change the surrounding context, and `.styles(Styles::light())` for a light terminal.
+
+Use `.highlighter(Highlighter::new(|line, base| ...))` to apply syntax colours. Returned spans should preserve the supplied base style so the diff background remains visible.
+
 ## Modules
 
 - `border`: reusable border presets and conversion into `ratatui` border sets
@@ -118,7 +138,7 @@ fn render(frame: &mut Frame) {
 - `surface`: rounded panels, centered layouts, text patterns, and classic tabs
 - `table`: a text table widget with wrapping, sizing, borders, and style callbacks
 - `tree`: styled tree rendering with custom branch and indent behavior
-- `widgets`: Bubble-style stateful widgets ported for ratatui, including key maps, help views, spinners, paginators, viewports, text inputs, text areas, and lists
+- `widgets`: Bubble-style stateful widgets ported for ratatui, including key maps, help views, spinners, paginators, viewports, text inputs, text areas, lists, and side-by-side diffs
 
 ## Showcase
 
@@ -138,6 +158,12 @@ Run the font sampler:
 
 ```bash
 cargo run --example fonts
+```
+
+Run the colored diff demo:
+
+```bash
+cargo run --example diff
 ```
 
 The font sampler prints every printable ASCII glyph for both `Sans` and `Serif` in labelled grids, followed by a `ROBERTO` wordmark in each font.
