@@ -26,9 +26,11 @@ use ratatui_glamour::{
     table::{Column as TableColumn, Model as TableModel, Styles as TableModelStyles},
     tree::{Tree, TreeNode, rounded_enumerator},
     widgets::{
+        checkbox::Model as WidgetCheckbox,
         filepicker::Model as WidgetFilePicker,
         list::{DefaultDelegate as WidgetListDelegate, DefaultListItem, Model as WidgetList},
         progress::Model as WidgetProgress,
+        radiogroup::{Model as WidgetRadioGroup, Orientation as RadioOrientation},
         textarea::Model as WidgetTextArea,
         textinput::Model as WidgetTextInput,
     },
@@ -86,12 +88,19 @@ struct ShowcaseApp {
     layer_cursor_x: u16,
     layer_cursor_y: u16,
     widgets_focus: usize,
+    widgets_control_focus: usize,
     widgets_input: WidgetTextInput,
     widgets_textarea: WidgetTextArea,
     widgets_list: WidgetList<DefaultListItem, WidgetListDelegate>,
     widgets_picker: WidgetFilePicker,
     widgets_picker_root: PathBuf,
     widgets_progress: WidgetProgress,
+    widgets_check_plain: WidgetCheckbox,
+    widgets_check_inline: WidgetCheckbox,
+    widgets_check_description: WidgetCheckbox,
+    widgets_check_both: WidgetCheckbox,
+    widgets_radio_horizontal: WidgetRadioGroup,
+    widgets_radio_vertical: WidgetRadioGroup,
 }
 
 impl Default for ShowcaseApp {
@@ -215,6 +224,63 @@ impl Default for ShowcaseApp {
         widgets_progress.set_colors(vec![Color::Rgb(90, 86, 224), Color::Rgb(238, 111, 248)]);
         widgets_progress.set_percent(0.64);
         let _ = widgets_progress.update(widgets_progress.frame_msg());
+
+        let label_color = Color::Indexed(252);
+        let description_color = Color::Indexed(241);
+        let checked_color = Color::Rgb(90, 86, 224);
+        let unchecked_color = Color::Indexed(99);
+
+        let mut widgets_check_plain = WidgetCheckbox::new("");
+        widgets_check_plain.style = Style::default().fg(label_color);
+        widgets_check_plain.checked_style = Style::default()
+            .fg(checked_color)
+            .add_modifier(Modifier::BOLD);
+        widgets_check_plain.unchecked_style = Style::default().fg(unchecked_color);
+
+        let mut widgets_check_inline = WidgetCheckbox::new("label");
+        widgets_check_inline.checked = true;
+        widgets_check_inline.style = Style::default().fg(label_color);
+        widgets_check_inline.checked_style = Style::default()
+            .fg(checked_color)
+            .add_modifier(Modifier::BOLD);
+        widgets_check_inline.unchecked_style = Style::default().fg(unchecked_color);
+
+        let mut widgets_check_description =
+            WidgetCheckbox::new("").with_description("Description");
+        widgets_check_description.style = Style::default().fg(label_color);
+        widgets_check_description.description_style = Style::default().fg(description_color);
+        widgets_check_description.checked_style = Style::default()
+            .fg(checked_color)
+            .add_modifier(Modifier::BOLD);
+        widgets_check_description.unchecked_style = Style::default().fg(unchecked_color);
+
+        let mut widgets_check_both = WidgetCheckbox::new("label")
+            .with_description("Description");
+        widgets_check_both.checked = true;
+        widgets_check_both.style = Style::default().fg(label_color);
+        widgets_check_both.description_style = Style::default().fg(description_color);
+        widgets_check_both.checked_style = Style::default()
+            .fg(checked_color)
+            .add_modifier(Modifier::BOLD);
+        widgets_check_both.unchecked_style = Style::default().fg(unchecked_color);
+
+        let mut widgets_radio_horizontal =
+            WidgetRadioGroup::new(["one", "two", "three"]);
+        widgets_radio_horizontal.option_gap = 2;
+        widgets_radio_horizontal.style = Style::default().fg(label_color);
+        widgets_radio_horizontal.checked_style = Style::default()
+            .fg(checked_color)
+            .add_modifier(Modifier::BOLD);
+        widgets_radio_horizontal.unchecked_style = Style::default().fg(unchecked_color);
+
+        let mut widgets_radio_vertical = WidgetRadioGroup::new(["one", "two", "three"]);
+        widgets_radio_vertical.orientation = RadioOrientation::Vertical;
+        widgets_radio_vertical.selected = 1;
+        widgets_radio_vertical.style = Style::default().fg(label_color);
+        widgets_radio_vertical.checked_style = Style::default()
+            .fg(checked_color)
+            .add_modifier(Modifier::BOLD);
+        widgets_radio_vertical.unchecked_style = Style::default().fg(unchecked_color);
 
         let mut table_model = TableModel::new(
             vec![
@@ -364,19 +430,26 @@ impl Default for ShowcaseApp {
             layer_cursor_x: 0,
             layer_cursor_y: 0,
             widgets_focus: 0,
+            widgets_control_focus: 0,
             widgets_input,
             widgets_textarea,
             widgets_list,
             widgets_picker,
             widgets_picker_root,
             widgets_progress,
+            widgets_check_plain,
+            widgets_check_inline,
+            widgets_check_description,
+            widgets_check_both,
+            widgets_radio_horizontal,
+            widgets_radio_vertical,
         }
     }
 }
 
 impl ShowcaseApp {
     fn set_widgets_focus(&mut self, focus: usize) {
-        self.widgets_focus = focus % 4;
+        self.widgets_focus = focus % 5;
         if self.widgets_focus == 0 {
             self.widgets_input.focus();
             self.widgets_textarea.blur();
@@ -394,7 +467,7 @@ impl ShowcaseApp {
     }
 
     fn prev_widget_focus(&mut self) {
-        self.set_widgets_focus((self.widgets_focus + 3) % 4);
+        self.set_widgets_focus((self.widgets_focus + 4) % 5);
     }
 
     fn next_tab(&mut self) {
@@ -457,6 +530,40 @@ impl ShowcaseApp {
         }
     }
 
+    fn handle_controls_key(&mut self, key: KeyEvent) {
+        const CONTROL_COUNT: usize = 6;
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.widgets_control_focus =
+                    (self.widgets_control_focus + CONTROL_COUNT - 1) % CONTROL_COUNT;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.widgets_control_focus =
+                    (self.widgets_control_focus + 1) % CONTROL_COUNT;
+            }
+            KeyCode::Left => match self.widgets_control_focus {
+                4 => self.widgets_radio_horizontal.select_previous(),
+                5 => self.widgets_radio_vertical.select_previous(),
+                _ => {}
+            },
+            KeyCode::Right => match self.widgets_control_focus {
+                4 => self.widgets_radio_horizontal.select_next(),
+                5 => self.widgets_radio_vertical.select_next(),
+                _ => {}
+            },
+            KeyCode::Char(' ') | KeyCode::Enter => match self.widgets_control_focus {
+                0 => self.widgets_check_plain.toggle(),
+                1 => self.widgets_check_inline.toggle(),
+                2 => self.widgets_check_description.toggle(),
+                3 => self.widgets_check_both.toggle(),
+                4 => self.widgets_radio_horizontal.select_next(),
+                5 => self.widgets_radio_vertical.select_next(),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
     fn handle_widgets_key(&mut self, key: KeyEvent) -> bool {
         if self.tab != 6 {
             return false;
@@ -506,6 +613,7 @@ impl ShowcaseApp {
             3 => {
                 let _ = self.widgets_picker.handle_key(&key);
             }
+            4 => self.handle_controls_key(key),
             _ => {}
         }
         true
@@ -619,7 +727,7 @@ fn render_app(frame: &mut Frame, app: &mut ShowcaseApp) {
     let help = match app.tab {
         3 => "Shift+←/→ pages  ↑/↓/pgup/pgdn table  g/G home/end  q quit",
         4 => "Shift+←/→ pages  ←/→/↑/↓ move hit cursor  q quit",
-        6 => "Tab/Shift-Tab widgets  Shift+←/→ pages  +/- progress  q quit",
+        6 => "Tab widgets  ↑/↓ control  Space toggle  ←/→ select  Shift+←/→ pages  +/- progress  q quit",
         _ => "Shift+←/→ pages  q quit",
     };
     Paragraph::new(help)
@@ -1307,11 +1415,12 @@ fn render_widgets_demo(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
         .try_into()
         .unwrap();
 
-    let [progress_area, input_area, list_area]: [Rect; 3] = Layout::default()
+    let [progress_area, input_area, controls_area, list_area]: [Rect; 4] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(11),
             Constraint::Min(0),
         ])
         .spacing(0)
@@ -1339,11 +1448,99 @@ fn render_widgets_demo(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
         inner_rect(input_area),
     );
 
+    render_controls_panel(frame, controls_area, app);
+
     render_list_panel(frame, list_area, app);
 
     render_textarea_panel(frame, textarea_area, app);
 
     render_filepicker_panel(frame, picker_area, app);
+}
+
+fn render_controls_panel(frame: &mut Frame, area: Rect, app: &ShowcaseApp) {
+    render_demo_block(
+        frame,
+        area,
+        "Checkboxes + Radios",
+        app.widgets_focus == 4,
+    );
+    let inner = inner_rect(area);
+    let label_width = 11u16;
+    let value_x = inner.x + label_width + 2;
+    let value_width = inner.right().saturating_sub(value_x + 1);
+    let mut y = inner.y;
+    let draw_row = |frame: &mut Frame,
+                    y: u16,
+                    label: &str,
+                    line: Line<'static>,
+                    active: bool| {
+        let style = if active {
+            Style::default()
+                .fg(Color::Indexed(219))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Indexed(241))
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(label, style)),
+            Rect::new(inner.x, y, label_width, 1),
+        );
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect::new(value_x, y, value_width, 1),
+        );
+    };
+    let focused = app.widgets_focus == 4;
+
+    draw_row(
+        frame,
+        y,
+        "plain",
+        app.widgets_check_plain.view(),
+        focused && app.widgets_control_focus == 0,
+    );
+    y += 1;
+    draw_row(
+        frame,
+        y,
+        "inline",
+        app.widgets_check_inline.view(),
+        focused && app.widgets_control_focus == 1,
+    );
+    y += 1;
+    draw_row(
+        frame,
+        y,
+        "description",
+        app.widgets_check_description.view(),
+        focused && app.widgets_control_focus == 2,
+    );
+    y += 1;
+    draw_row(
+        frame,
+        y,
+        "both",
+        app.widgets_check_both.view(),
+        focused && app.widgets_control_focus == 3,
+    );
+    y += 2;
+    draw_row(
+        frame,
+        y,
+        "horizontal",
+        app.widgets_radio_horizontal.view(),
+        focused && app.widgets_control_focus == 4,
+    );
+    y += 1;
+    for (index, line) in app.widgets_radio_vertical.lines().iter().enumerate() {
+        draw_row(
+            frame,
+            y + index as u16,
+            if index == 0 { "vertical" } else { "" },
+            line.clone(),
+            focused && app.widgets_control_focus == 5 && index == 0,
+        );
+    }
 }
 
 fn render_demo_block(frame: &mut Frame, area: Rect, title: &str, focused: bool) {

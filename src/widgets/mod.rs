@@ -1,4 +1,5 @@
 pub mod bigtext;
+pub mod checkbox;
 pub mod cursor;
 pub mod diff;
 pub mod filepicker;
@@ -9,6 +10,7 @@ pub mod logo;
 pub mod paginator;
 pub mod passwordinput;
 pub mod progress;
+pub mod radiogroup;
 pub mod spinner;
 pub mod stopwatch;
 pub mod textarea;
