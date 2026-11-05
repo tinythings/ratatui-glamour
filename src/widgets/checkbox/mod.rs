@@ -157,10 +157,16 @@ mod tests {
         model.symbol_width = 3;
         model.label_gap = 1;
         let start = model.view().to_string().find("label").expect("label");
-        assert_eq!(UnicodeWidthStr::width(&model.view().to_string()[..start]), 4);
+        assert_eq!(
+            UnicodeWidthStr::width(&model.view().to_string()[..start]),
+            4
+        );
         model.checked = true;
         let start = model.view().to_string().find("label").expect("label");
-        assert_eq!(UnicodeWidthStr::width(&model.view().to_string()[..start]), 4);
+        assert_eq!(
+            UnicodeWidthStr::width(&model.view().to_string()[..start]),
+            4
+        );
     }
 
     #[test]
@@ -187,7 +193,10 @@ mod tests {
         model.description_style = Style::default().fg(ratatui::style::Color::Blue);
         model = model.with_description("Description");
         let view = model.view();
-        assert_eq!(view.spans.last().unwrap().style.fg, Some(ratatui::style::Color::Blue));
+        assert_eq!(
+            view.spans.last().unwrap().style.fg,
+            Some(ratatui::style::Color::Blue)
+        );
         let text = view.to_string();
         assert!(text.contains("label"), "{text}");
         assert!(text.contains("Description"), "{text}");

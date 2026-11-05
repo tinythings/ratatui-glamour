@@ -57,6 +57,18 @@ pub struct DefaultListItem {
     pub filter_value: String,
 }
 
+impl DefaultListItem {
+    /// Creates an item whose filter value defaults to its title.
+    pub fn new(title: impl Into<String>, description: impl Into<String>) -> Self {
+        let title = title.into();
+        Self {
+            filter_value: title.clone(),
+            title,
+            description: description.into(),
+        }
+    }
+}
+
 impl Item for DefaultListItem {
     fn filter_value(&self) -> String {
         self.filter_value.clone()

@@ -1,14 +1,18 @@
 use std::{
+    cell::RefCell,
     env, io,
     path::{Path, PathBuf},
-    time::Duration,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 
 use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
 };
 use ratatui::{
     DefaultTerminal, Frame,
+    buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -27,6 +31,7 @@ use ratatui_glamour::{
     tree::{Tree, TreeNode, rounded_enumerator},
     widgets::{
         checkbox::Model as WidgetCheckbox,
+        dropdown::{LabelAlign as DropdownLabelAlign, Model as WidgetDropdown},
         filepicker::Model as WidgetFilePicker,
         list::{DefaultDelegate as WidgetListDelegate, DefaultListItem, Model as WidgetList},
         progress::Model as WidgetProgress,
@@ -35,8 +40,9 @@ use ratatui_glamour::{
         textinput::Model as WidgetTextInput,
     },
 };
+use unicode_width::UnicodeWidthStr;
 
-const TAB_TITLES: [&str; 7] = [
+const TAB_TITLES: [&str; 9] = [
     "Gradients",
     "Borders",
     "Tree + List",
@@ -44,9 +50,789 @@ const TAB_TITLES: [&str; 7] = [
     "Layers",
     "Layout",
     "Widgets",
+    "Widgets 2",
+    "Forms",
 ];
 const LAYOUT_WIDTH: u16 = 96;
 const LAYOUT_HEIGHT: u16 = 52;
+
+fn list_default_items() -> Vec<DefaultListItem> {
+    [
+        ("Raspberry Pi’s", "I have ’em all over my house"),
+        ("Nutella", "It's good on toast"),
+        ("Bitter melon", "It cools you down"),
+        ("Nice socks", "And by that I mean socks without holes"),
+        ("Eight hours of sleep", "I had this once"),
+        ("Cats", "Usually"),
+        ("Plantasia, the album", "My plants love it too"),
+        ("Pour over coffee", "It takes forever to make though"),
+        ("VR", "Virtual reality...what is there to say?"),
+        ("Noguchi Lamps", "Such pleasing organic forms"),
+        ("Linux", "Pretty much the best OS"),
+        ("Business school", "Just kidding"),
+        ("Pottery", "Wet clay is a great feeling"),
+        ("Shampoo", "Nothing like clean hair"),
+        ("Table tennis", "It’s surprisingly exhausting"),
+        ("Milk crates", "Great for packing in your extra stuff"),
+        ("Afternoon tea", "Especially the tea sandwich part"),
+        ("Stickers", "The thicker the vinyl the better"),
+        ("20° Weather", "Celsius, not Fahrenheit"),
+        ("Warm light", "Like around 2700 Kelvin"),
+        (
+            "The vernal equinox",
+            "The autumnal equinox is pretty good too",
+        ),
+        ("Gaffer’s tape", "Basically sticky fabric"),
+        ("Terrycloth", "In other words, towel fabric"),
+    ]
+    .into_iter()
+    .map(|(title, description)| DefaultListItem::new(title, description))
+    .collect()
+}
+
+type FormFocusHook = Box<dyn FnMut(&str)>;
+type FormChangeHook = Box<dyn FnMut(&str, &str)>;
+
+enum FormWidget {
+    Text(Box<WidgetTextInput>),
+    Dropdown(Box<WidgetDropdown>),
+    Checkbox(Box<WidgetCheckbox>),
+    Radio(Box<WidgetRadioGroup>),
+}
+
+impl FormWidget {
+    fn render(&mut self, area: Rect, buf: &mut Buffer) {
+        match self {
+            Self::Text(input) => {
+                input.set_width(area.width.saturating_sub(2) as usize);
+                input.render(area, buf);
+            }
+            Self::Dropdown(dropdown) => {
+                dropdown.width = Some(area.width);
+                dropdown.render_field(area, buf);
+            }
+            Self::Checkbox(checkbox) => checkbox.render(area, buf),
+            Self::Radio(radio) => radio.render(area, buf),
+        }
+    }
+
+    fn render_popup(&mut self, buf: &mut Buffer) {
+        if let Self::Dropdown(dropdown) = self {
+            dropdown.render_popup(buf);
+        }
+    }
+
+    fn focus(&mut self) {
+        if let Self::Text(input) = self {
+            input.focus();
+        }
+    }
+
+    fn blur(&mut self) {
+        if let Self::Text(input) = self {
+            input.blur();
+        }
+    }
+
+    fn close(&mut self) {
+        if let Self::Dropdown(dropdown) = self {
+            dropdown.close();
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        matches!(self, Self::Dropdown(dropdown) if dropdown.is_open())
+    }
+
+    fn is_text(&self) -> bool {
+        matches!(self, Self::Text(_))
+    }
+
+    fn value(&self) -> String {
+        match self {
+            Self::Text(input) => input.value(),
+            Self::Dropdown(dropdown) => dropdown.value(),
+            Self::Checkbox(checkbox) => {
+                if checkbox.checked {
+                    "on".to_string()
+                } else {
+                    "off".to_string()
+                }
+            }
+            Self::Radio(radio) => radio
+                .options
+                .get(radio.selected)
+                .cloned()
+                .unwrap_or_default(),
+        }
+    }
+
+    fn handle_key(&mut self, key: &KeyEvent) -> bool {
+        match self {
+            Self::Text(input) => {
+                input.handle_key(key);
+                true
+            }
+            Self::Dropdown(dropdown) => {
+                let _ = dropdown.handle_key(key);
+                true
+            }
+            Self::Checkbox(checkbox) => checkbox.handle_key(key),
+            Self::Radio(radio) => {
+                if matches!(key.code, KeyCode::Char(' ') | KeyCode::Enter) {
+                    radio.select_next();
+                    true
+                } else {
+                    radio.handle_key(key)
+                }
+            }
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: &MouseEvent) -> bool {
+        match self {
+            Self::Dropdown(dropdown) => {
+                let _ = dropdown.handle_mouse(mouse);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+struct FormField {
+    label: String,
+    description: String,
+    widget: FormWidget,
+}
+
+struct FormSection {
+    title: String,
+    fields: Vec<FormField>,
+}
+
+/// A small Qt-style form packer: add sections and widgets, attach signals,
+/// and the form handles layout, focus, painting and input.
+struct Form {
+    label_width: u16,
+    widget_width: u16,
+    gap: u16,
+    sections: Vec<FormSection>,
+    focus: usize,
+    row_areas: Vec<(usize, Rect)>,
+    widget_areas: Vec<(usize, Rect)>,
+    on_focus: Option<FormFocusHook>,
+    on_change: Option<FormChangeHook>,
+    next_blink: Instant,
+}
+
+impl Form {
+    fn new(label_width: u16, widget_width: u16, gap: u16) -> Self {
+        Self {
+            label_width,
+            widget_width,
+            gap,
+            sections: Vec::new(),
+            focus: usize::MAX,
+            row_areas: Vec::new(),
+            widget_areas: Vec::new(),
+            on_focus: None,
+            on_change: None,
+            next_blink: Instant::now(),
+        }
+    }
+
+    fn section(&mut self, title: impl Into<String>) -> &mut Self {
+        self.sections.push(FormSection {
+            title: title.into(),
+            fields: Vec::new(),
+        });
+        self
+    }
+
+    fn text(
+        &mut self,
+        label: impl Into<String>,
+        description: impl Into<String>,
+        value: &str,
+    ) -> &mut Self {
+        self.add(
+            label,
+            description,
+            FormWidget::Text(Box::new(form_text_input(value))),
+        )
+    }
+
+    fn dropdown(
+        &mut self,
+        label: impl Into<String>,
+        description: impl Into<String>,
+        items: Vec<DefaultListItem>,
+    ) -> &mut Self {
+        let mut dropdown = WidgetDropdown::new("", items);
+        dropdown.width = Some(self.widget_width);
+        dropdown.popup_width = Some(56);
+        self.add(label, description, FormWidget::Dropdown(Box::new(dropdown)))
+    }
+
+    fn checkbox(
+        &mut self,
+        label: impl Into<String>,
+        description: impl Into<String>,
+        text: &str,
+        checked: bool,
+    ) -> &mut Self {
+        let mut checkbox = WidgetCheckbox::new(text);
+        checkbox.checked = checked;
+        checkbox.style = Style::default().fg(Color::Indexed(252));
+        checkbox.checked_style = Style::default()
+            .fg(Color::Indexed(219))
+            .add_modifier(Modifier::BOLD);
+        checkbox.unchecked_style = Style::default().fg(Color::Indexed(238));
+        self.add(label, description, FormWidget::Checkbox(Box::new(checkbox)))
+    }
+
+    fn radio(
+        &mut self,
+        label: impl Into<String>,
+        description: impl Into<String>,
+        options: [&str; 2],
+    ) -> &mut Self {
+        let mut radio = WidgetRadioGroup::new(options);
+        radio.option_gap = 2;
+        radio.style = Style::default().fg(Color::Indexed(252));
+        radio.checked_style = Style::default()
+            .fg(Color::Indexed(219))
+            .add_modifier(Modifier::BOLD);
+        radio.unchecked_style = Style::default().fg(Color::Indexed(238));
+        self.add(label, description, FormWidget::Radio(Box::new(radio)))
+    }
+
+    fn add(
+        &mut self,
+        label: impl Into<String>,
+        description: impl Into<String>,
+        widget: FormWidget,
+    ) -> &mut Self {
+        if self.sections.is_empty() {
+            self.section("Form");
+        }
+        self.sections
+            .last_mut()
+            .expect("form section")
+            .fields
+            .push(FormField {
+                label: label.into(),
+                description: description.into(),
+                widget,
+            });
+        self
+    }
+
+    fn on_focus(&mut self, hook: impl FnMut(&str) + 'static) -> &mut Self {
+        self.on_focus = Some(Box::new(hook));
+        self
+    }
+
+    fn on_change(&mut self, hook: impl FnMut(&str, &str) + 'static) -> &mut Self {
+        self.on_change = Some(Box::new(hook));
+        self
+    }
+
+    fn total_fields(&self) -> usize {
+        self.sections
+            .iter()
+            .map(|section| section.fields.len())
+            .sum()
+    }
+
+    fn field(&self, index: usize) -> Option<&FormField> {
+        self.sections
+            .iter()
+            .flat_map(|section| section.fields.iter())
+            .nth(index)
+    }
+
+    fn field_mut(&mut self, index: usize) -> Option<&mut FormField> {
+        self.sections
+            .iter_mut()
+            .flat_map(|section| section.fields.iter_mut())
+            .nth(index)
+    }
+
+    fn focused_section(&self) -> Option<usize> {
+        let mut offset = 0usize;
+        for (index, section) in self.sections.iter().enumerate() {
+            let end = offset + section.fields.len();
+            if self.focus >= offset && self.focus < end {
+                return Some(index);
+            }
+            offset = end;
+        }
+        None
+    }
+
+    fn focus_first(&mut self) {
+        if self.total_fields() > 0 {
+            self.focus_field(0);
+        }
+    }
+
+    fn focus_field(&mut self, index: usize) {
+        let total = self.total_fields();
+        if total == 0 {
+            self.focus = usize::MAX;
+            return;
+        }
+        let index = index.min(total - 1);
+        let changed = self.focus != index;
+        self.focus = index;
+        for section in &mut self.sections {
+            for field in &mut section.fields {
+                field.widget.blur();
+                field.widget.close();
+            }
+        }
+        if let Some(field) = self.field_mut(index) {
+            field.widget.focus();
+        }
+        if changed {
+            let label = self
+                .field(index)
+                .map(|field| field.label.clone())
+                .unwrap_or_default();
+            if let Some(hook) = self.on_focus.as_mut() {
+                hook(&label);
+            }
+        }
+        self.reset_blink();
+    }
+
+    fn reset_blink(&mut self) {
+        let now = Instant::now();
+        let speed = {
+            let Some(field) = self.field_mut(self.focus) else {
+                return;
+            };
+            match &mut field.widget {
+                FormWidget::Text(input) => {
+                    input.virtual_cursor.focus();
+                    Some(input.virtual_cursor.blink_speed)
+                }
+                _ => None,
+            }
+        };
+        if let Some(speed) = speed {
+            self.next_blink = now + speed;
+        }
+    }
+
+    fn tick(&mut self) {
+        let now = Instant::now();
+        if now < self.next_blink {
+            return;
+        }
+        let speed = {
+            let Some(field) = self.field_mut(self.focus) else {
+                return;
+            };
+            match &mut field.widget {
+                FormWidget::Text(input) => {
+                    if let Some(msg) = input.virtual_cursor.blink_msg() {
+                        input.virtual_cursor.update_blink(msg);
+                    }
+                    input.virtual_cursor.blink_speed
+                }
+                _ => return,
+            }
+        };
+        self.next_blink = now + speed;
+    }
+
+    fn next_field(&mut self) {
+        let total = self.total_fields();
+        if total == 0 {
+            return;
+        }
+        let next = if self.focus == usize::MAX {
+            0
+        } else {
+            (self.focus + 1) % total
+        };
+        self.focus_field(next);
+    }
+
+    fn prev_field(&mut self) {
+        let total = self.total_fields();
+        if total == 0 {
+            return;
+        }
+        let prev = if self.focus == usize::MAX {
+            total - 1
+        } else {
+            (self.focus + total - 1) % total
+        };
+        self.focus_field(prev);
+    }
+
+    fn value(&self, index: usize) -> Option<String> {
+        self.field(index).map(|field| field.widget.value())
+    }
+
+    fn emit_change(&mut self, index: usize, before: Option<String>) {
+        let Some(after) = self.value(index) else {
+            return;
+        };
+        if before.as_deref() == Some(after.as_str()) {
+            return;
+        }
+        let label = self
+            .field(index)
+            .map(|field| field.label.clone())
+            .unwrap_or_default();
+        if let Some(hook) = self.on_change.as_mut() {
+            hook(&label, &after);
+        }
+    }
+
+    fn open_field_index(&self) -> Option<usize> {
+        let mut index = 0usize;
+        for section in &self.sections {
+            for field in &section.fields {
+                if field.widget.is_open() {
+                    return Some(index);
+                }
+                index += 1;
+            }
+        }
+        None
+    }
+
+    fn handle_key(&mut self, key: &KeyEvent) -> bool {
+        if key.modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(key.code, KeyCode::Left | KeyCode::Right)
+        {
+            return false;
+        }
+        if self.total_fields() == 0 {
+            return false;
+        }
+        let Some(index) = self.focused_index() else {
+            return false;
+        };
+
+        if self
+            .field(index)
+            .is_some_and(|field| field.widget.is_open())
+        {
+            match key.code {
+                KeyCode::Tab => {
+                    if let Some(field) = self.field_mut(index) {
+                        field.widget.close();
+                    }
+                    self.next_field();
+                    return true;
+                }
+                KeyCode::BackTab => {
+                    if let Some(field) = self.field_mut(index) {
+                        field.widget.close();
+                    }
+                    self.prev_field();
+                    return true;
+                }
+                _ => {
+                    let before = self.value(index);
+                    if let Some(field) = self.field_mut(index) {
+                        field.widget.handle_key(key);
+                    }
+                    self.emit_change(index, before);
+                    return true;
+                }
+            }
+        }
+
+        match key.code {
+            KeyCode::Tab => {
+                self.next_field();
+                return true;
+            }
+            KeyCode::BackTab => {
+                self.prev_field();
+                return true;
+            }
+            KeyCode::Up => {
+                self.prev_field();
+                return true;
+            }
+            KeyCode::Down => {
+                self.next_field();
+                return true;
+            }
+            KeyCode::Esc => return false,
+            _ => {}
+        }
+
+        let text_field = self
+            .field(index)
+            .is_some_and(|field| field.widget.is_text());
+        if key.code == KeyCode::Char('q') && !text_field {
+            return false;
+        }
+
+        let before = self.value(index);
+        let handled = self
+            .field_mut(index)
+            .is_some_and(|field| field.widget.handle_key(key));
+        self.emit_change(index, before);
+        if handled && text_field {
+            self.reset_blink();
+        }
+        handled
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if let Some(index) = self.open_field_index() {
+            let before = self.value(index);
+            if let Some(field) = self.field_mut(index) {
+                let _ = field.widget.handle_mouse(&mouse);
+            }
+            self.emit_change(index, before);
+            return;
+        }
+
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                self.prev_field();
+                return;
+            }
+            MouseEventKind::ScrollDown => {
+                self.next_field();
+                return;
+            }
+            MouseEventKind::Down(MouseButton::Left) => {}
+            _ => return,
+        }
+
+        let point = (mouse.column, mouse.row);
+        let Some((index, _)) = self
+            .row_areas
+            .iter()
+            .find(|(_, area)| rect_contains(*area, point))
+        else {
+            return;
+        };
+        let index = *index;
+        self.focus_field(index);
+        let widget_hit = self
+            .widget_areas
+            .iter()
+            .any(|(candidate, area)| *candidate == index && rect_contains(*area, point));
+        if !widget_hit {
+            return;
+        }
+        let before = self.value(index);
+        if let Some(field) = self.field_mut(index) {
+            match &mut field.widget {
+                FormWidget::Dropdown(dropdown) => {
+                    let _ = dropdown.handle_mouse(&mouse);
+                }
+                FormWidget::Checkbox(checkbox) => checkbox.toggle(),
+                FormWidget::Radio(radio) => radio.select_next(),
+                FormWidget::Text(_) => {}
+            }
+        }
+        self.emit_change(index, before);
+    }
+
+    fn focused_index(&self) -> Option<usize> {
+        (self.focus != usize::MAX && self.focus < self.total_fields()).then_some(self.focus)
+    }
+
+    fn render(&mut self, area: Rect, frame: &mut Frame) {
+        self.row_areas.clear();
+        self.widget_areas.clear();
+        let focused_section = self.focused_section();
+        let description_x = area.x + self.label_width + self.gap + self.widget_width + self.gap;
+        let description_width = area.right().saturating_sub(description_x + 1);
+        let mut y = area.y;
+        let mut field_index = 0usize;
+
+        for (section_index, section) in self.sections.iter_mut().enumerate() {
+            if y >= area.bottom() {
+                break;
+            }
+            render_form_divider(
+                frame,
+                area,
+                y,
+                &section.title,
+                focused_section == Some(section_index),
+            );
+            y += 1;
+            for field in &mut section.fields {
+                let lines = wrap_form_text(&field.description, description_width);
+                let row_height = lines.len().max(1) as u16;
+                if y.saturating_add(row_height) > area.bottom() {
+                    break;
+                }
+                let focused = field_index == self.focus;
+                let row_area = Rect::new(area.x, y, area.width, row_height);
+                if focused {
+                    fill_rect(
+                        frame.buffer_mut(),
+                        row_area,
+                        Style::default().bg(Color::Indexed(235)),
+                    );
+                }
+
+                let label_pad = self
+                    .label_width
+                    .saturating_sub(UnicodeWidthStr::width(field.label.as_str()) as u16);
+                let label_style = if focused {
+                    Style::default()
+                        .fg(Color::Indexed(231))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Indexed(244))
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(field.label.clone(), label_style))),
+                    Rect::new(
+                        area.x + label_pad,
+                        y,
+                        self.label_width.saturating_sub(label_pad),
+                        1,
+                    ),
+                );
+
+                let widget_area = Rect::new(
+                    area.x + self.label_width + self.gap,
+                    y,
+                    self.widget_width,
+                    1,
+                );
+                field.widget.render(widget_area, frame.buffer_mut());
+                self.widget_areas.push((field_index, widget_area));
+
+                let description_style = if focused {
+                    Style::default().fg(Color::Indexed(231))
+                } else {
+                    Style::default().fg(if field_index.is_multiple_of(2) {
+                        Color::Indexed(244)
+                    } else {
+                        Color::Indexed(238)
+                    })
+                };
+                for (line_index, line) in lines.iter().enumerate() {
+                    frame.buffer_mut().set_line(
+                        description_x,
+                        y + line_index as u16,
+                        &Line::from(Span::styled(line.clone(), description_style)),
+                        description_width,
+                    );
+                }
+
+                self.row_areas.push((field_index, row_area));
+                y += row_height;
+                field_index += 1;
+            }
+        }
+
+        for section in &mut self.sections {
+            for field in &mut section.fields {
+                field.widget.render_popup(frame.buffer_mut());
+            }
+        }
+    }
+}
+
+fn form_text_input(value: &str) -> WidgetTextInput {
+    let mut input = WidgetTextInput::new();
+    input.prompt = "> ".to_string();
+    input.set_width(28);
+    input.set_value(value);
+    let mut styles = input.styles().clone();
+    styles.focused.text = Style::default().fg(Color::Indexed(252));
+    styles.blurred.text = Style::default().fg(Color::Indexed(244));
+    styles.focused.placeholder = Style::default().fg(Color::Indexed(240));
+    styles.blurred.placeholder = Style::default().fg(Color::Indexed(240));
+    styles.focused.prompt = Style::default().fg(Color::Indexed(219));
+    styles.blurred.prompt = Style::default().fg(Color::Indexed(240));
+    styles.cursor.style = Style::default().fg(Color::Indexed(219));
+    input.set_styles(styles);
+    input
+}
+
+fn flower_items() -> Vec<DefaultListItem> {
+    vec![
+        DefaultListItem::new("Rose", "Soft layered petals with a classic scent"),
+        DefaultListItem::new("Tulip", "Spring bulbs in bright, saturated colours"),
+        DefaultListItem::new("Lavender", "Fragrant purple spikes for sunny borders"),
+        DefaultListItem::new("Sunflower", "Tall stems that follow the light"),
+        DefaultListItem::new("Orchid", "Elegant tropical blooms on slow stems"),
+        DefaultListItem::new("Daisy", "Cheerful white petals around a golden eye"),
+        DefaultListItem::new("Peony", "Full ruffled flowers in late spring"),
+        DefaultListItem::new("Hydrangea", "Clusters of tiny florets that shift colour"),
+        DefaultListItem::new("Jasmine", "Small white flowers with a heavy perfume"),
+        DefaultListItem::new("Lotus", "Still water, wide leaves and quiet colour"),
+        DefaultListItem::new("Poppy", "Paper-thin petals above fine green stems"),
+        DefaultListItem::new("Iris", "Sword leaves and folded violet petals"),
+        DefaultListItem::new("Camellia", "Glossy leaves and winter blooms"),
+        DefaultListItem::new("Bluebell", "Woodland bells in early spring"),
+    ]
+}
+
+fn build_form() -> (Form, Rc<RefCell<String>>) {
+    let status = Rc::new(RefCell::new("focus: name".to_string()));
+    let mut form = Form::new(12, 30, 2);
+
+    let focus_status = Rc::clone(&status);
+    form.on_focus(move |label| {
+        *focus_status.borrow_mut() = format!("focus: {label}");
+    });
+    let change_status = Rc::clone(&status);
+    form.on_change(move |label, value| {
+        *change_status.borrow_mut() = format!("change: {label} = {value}");
+    });
+
+    form.section("Identity")
+        .text(
+            "name",
+            "Human readable identifier used in\nthe showcase form.",
+            "morning-glow",
+        )
+        .text(
+            "version",
+            "Semantic version of this form.\nBumped by release automation.",
+            "1.4.0",
+        )
+        .section("Appearance")
+        .radio(
+            "style",
+            "Overall visual treatment for the\nform preview.",
+            ["soft", "vivid"],
+        )
+        .dropdown(
+            "flower",
+            "Pick a favourite bloom from the\ncatalogue. Paging keeps the list short.",
+            flower_items(),
+        )
+        .checkbox(
+            "optional",
+            "Optional flourish shown in the\npreview without changing layout.",
+            "add sparkle",
+            true,
+        )
+        .section("Notes")
+        .text(
+            "notes",
+            "Free-form note for the operator.\nThis text is not sent anywhere.",
+            "keep the petals fresh",
+        );
+
+    form.focus_first();
+    (form, status)
+}
 
 fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
@@ -101,6 +887,10 @@ struct ShowcaseApp {
     widgets_check_both: WidgetCheckbox,
     widgets_radio_horizontal: WidgetRadioGroup,
     widgets_radio_vertical: WidgetRadioGroup,
+    widgets2_focus: usize,
+    widgets2: [WidgetDropdown; 5],
+    form: Form,
+    form_hooks: Rc<RefCell<String>>,
 }
 
 impl Default for ShowcaseApp {
@@ -245,8 +1035,7 @@ impl Default for ShowcaseApp {
             .add_modifier(Modifier::BOLD);
         widgets_check_inline.unchecked_style = Style::default().fg(unchecked_color);
 
-        let mut widgets_check_description =
-            WidgetCheckbox::new("").with_description("Description");
+        let mut widgets_check_description = WidgetCheckbox::new("").with_description("Description");
         widgets_check_description.style = Style::default().fg(label_color);
         widgets_check_description.description_style = Style::default().fg(description_color);
         widgets_check_description.checked_style = Style::default()
@@ -254,8 +1043,7 @@ impl Default for ShowcaseApp {
             .add_modifier(Modifier::BOLD);
         widgets_check_description.unchecked_style = Style::default().fg(unchecked_color);
 
-        let mut widgets_check_both = WidgetCheckbox::new("label")
-            .with_description("Description");
+        let mut widgets_check_both = WidgetCheckbox::new("label").with_description("Description");
         widgets_check_both.checked = true;
         widgets_check_both.style = Style::default().fg(label_color);
         widgets_check_both.description_style = Style::default().fg(description_color);
@@ -264,8 +1052,7 @@ impl Default for ShowcaseApp {
             .add_modifier(Modifier::BOLD);
         widgets_check_both.unchecked_style = Style::default().fg(unchecked_color);
 
-        let mut widgets_radio_horizontal =
-            WidgetRadioGroup::new(["one", "two", "three"]);
+        let mut widgets_radio_horizontal = WidgetRadioGroup::new(["one", "two", "three"]);
         widgets_radio_horizontal.option_gap = 2;
         widgets_radio_horizontal.style = Style::default().fg(label_color);
         widgets_radio_horizontal.checked_style = Style::default()
@@ -281,6 +1068,33 @@ impl Default for ShowcaseApp {
             .fg(checked_color)
             .add_modifier(Modifier::BOLD);
         widgets_radio_vertical.unchecked_style = Style::default().fg(unchecked_color);
+
+        let dropdown_items = list_default_items();
+        let mut widgets2 = [
+            WidgetDropdown::new("default", dropdown_items.clone()),
+            WidgetDropdown::new("no paginator", dropdown_items.clone()),
+            WidgetDropdown::new("no help", dropdown_items.clone()),
+            WidgetDropdown::new("page size 2", dropdown_items.clone()),
+            WidgetDropdown::new("width 15", dropdown_items),
+        ];
+        for dropdown in &mut widgets2 {
+            dropdown.width = Some(15);
+            dropdown.label_width = Some(13);
+            dropdown.label_gap = 0;
+            dropdown.label_align = DropdownLabelAlign::Right;
+            dropdown.label_suffix = ":".to_string();
+            dropdown.styles.label = Style::default().fg(description_color);
+            dropdown.select(1);
+        }
+        widgets2[1].show_paginator = false;
+        widgets2[1].select(5);
+        widgets2[2].show_help = false;
+        widgets2[2].select(10);
+        widgets2[3].page_size = 2;
+        widgets2[3].select(12);
+        widgets2[4].select(6);
+
+        let (form, form_hooks) = build_form();
 
         let mut table_model = TableModel::new(
             vec![
@@ -443,6 +1257,10 @@ impl Default for ShowcaseApp {
             widgets_check_both,
             widgets_radio_horizontal,
             widgets_radio_vertical,
+            widgets2_focus: 0,
+            widgets2,
+            form,
+            form_hooks,
         }
     }
 }
@@ -468,6 +1286,99 @@ impl ShowcaseApp {
 
     fn prev_widget_focus(&mut self) {
         self.set_widgets_focus((self.widgets_focus + 4) % 5);
+    }
+
+    fn next_widgets2_focus(&mut self) {
+        self.widgets2_focus = (self.widgets2_focus + 1) % self.widgets2.len();
+    }
+
+    fn prev_widgets2_focus(&mut self) {
+        self.widgets2_focus = (self.widgets2_focus + self.widgets2.len() - 1) % self.widgets2.len();
+    }
+
+    fn handle_widgets2_key(&mut self, key: KeyEvent) -> bool {
+        if self.tab != 7 {
+            return false;
+        }
+        if key.modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(key.code, KeyCode::Left | KeyCode::Right)
+        {
+            return false;
+        }
+
+        if self.widgets2[self.widgets2_focus].is_open() {
+            match key.code {
+                KeyCode::Tab => {
+                    self.widgets2[self.widgets2_focus].close();
+                    self.next_widgets2_focus();
+                    return true;
+                }
+                KeyCode::BackTab => {
+                    self.widgets2[self.widgets2_focus].close();
+                    self.prev_widgets2_focus();
+                    return true;
+                }
+                KeyCode::Char('q') => return true,
+                _ => {
+                    let _ = self.widgets2[self.widgets2_focus].handle_key(&key);
+                    return true;
+                }
+            }
+        }
+
+        match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => return false,
+            KeyCode::Tab => {
+                self.next_widgets2_focus();
+                return true;
+            }
+            KeyCode::BackTab => {
+                self.prev_widgets2_focus();
+                return true;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.prev_widgets2_focus();
+                return true;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.next_widgets2_focus();
+                return true;
+            }
+            _ => {}
+        }
+
+        let _ = self.widgets2[self.widgets2_focus].handle_key(&key);
+        true
+    }
+
+    fn handle_widgets2_mouse(&mut self, mouse: MouseEvent) {
+        if let Some(index) = self.widgets2.iter().position(WidgetDropdown::is_open) {
+            let _ = self.widgets2[index].handle_mouse(&mouse);
+            return;
+        }
+        let point = (mouse.column, mouse.row);
+        let hit = self.widgets2.iter().position(|dropdown| {
+            dropdown
+                .area()
+                .is_some_and(|area| rect_contains(area, point))
+        });
+        if let Some(index) = hit {
+            self.widgets2_focus = index;
+            let _ = self.widgets2[index].handle_mouse(&mouse);
+        }
+    }
+
+    fn handle_forms_key(&mut self, key: KeyEvent) -> bool {
+        if self.tab != 8 {
+            return false;
+        }
+        self.form.handle_key(&key)
+    }
+
+    fn handle_forms_mouse(&mut self, mouse: MouseEvent) {
+        if self.tab == 8 {
+            self.form.handle_mouse(mouse);
+        }
     }
 
     fn next_tab(&mut self) {
@@ -538,8 +1449,7 @@ impl ShowcaseApp {
                     (self.widgets_control_focus + CONTROL_COUNT - 1) % CONTROL_COUNT;
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                self.widgets_control_focus =
-                    (self.widgets_control_focus + 1) % CONTROL_COUNT;
+                self.widgets_control_focus = (self.widgets_control_focus + 1) % CONTROL_COUNT;
             }
             KeyCode::Left => match self.widgets_control_focus {
                 4 => self.widgets_radio_horizontal.select_previous(),
@@ -565,6 +1475,12 @@ impl ShowcaseApp {
     }
 
     fn handle_widgets_key(&mut self, key: KeyEvent) -> bool {
+        if self.tab == 8 {
+            return self.handle_forms_key(key);
+        }
+        if self.tab == 7 {
+            return self.handle_widgets2_key(key);
+        }
         if self.tab != 6 {
             return false;
         }
@@ -625,9 +1541,20 @@ impl ShowcaseApp {
                 .widgets_progress
                 .update(self.widgets_progress.frame_msg());
         }
+        if self.tab == 8 {
+            self.form.tick();
+        }
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
+        if self.tab == 8 {
+            self.handle_forms_mouse(mouse);
+            return;
+        }
+        if self.tab == 7 {
+            self.handle_widgets2_mouse(mouse);
+            return;
+        }
         if self.tab != 6 {
             return;
         }
@@ -721,13 +1648,19 @@ fn render_app(frame: &mut Frame, app: &mut ShowcaseApp) {
         3 => render_table(body_area, frame, app),
         4 => render_layers(body_area, frame, app),
         6 => render_widgets_demo(body_area, frame, app),
+        7 => render_widgets2_demo(body_area, frame, app),
+        8 => render_forms_demo(body_area, frame, app),
         _ => {}
     }
 
     let help = match app.tab {
         3 => "Shift+←/→ pages  ↑/↓/pgup/pgdn table  g/G home/end  q quit",
         4 => "Shift+←/→ pages  ←/→/↑/↓ move hit cursor  q quit",
-        6 => "Tab widgets  ↑/↓ control  Space toggle  ←/→ select  Shift+←/→ pages  +/- progress  q quit",
+        6 => {
+            "Tab widgets  ↑/↓ control  Space toggle  ←/→ select  Shift+←/→ pages  +/- progress  q quit"
+        }
+        7 => "Tab/↑/↓ field  Enter open/select  Esc close  Shift+←/→ pages  q quit",
+        8 => "Tab/↑/↓ field  type to edit  Space toggle  ←/→ select  Shift+←/→ pages  q quit",
         _ => "Shift+←/→ pages  q quit",
     };
     Paragraph::new(help)
@@ -1457,23 +2390,152 @@ fn render_widgets_demo(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
     render_filepicker_panel(frame, picker_area, app);
 }
 
-fn render_controls_panel(frame: &mut Frame, area: Rect, app: &ShowcaseApp) {
-    render_demo_block(
-        frame,
-        area,
-        "Checkboxes + Radios",
-        app.widgets_focus == 4,
+fn render_widgets2_demo(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
+    let open = app.widgets2.iter().any(WidgetDropdown::is_open);
+    render_demo_block(frame, area, "Dropdown", open);
+
+    let inner = inner_rect(area);
+    let row_x = inner.x + 2;
+    let row_width = inner.width.saturating_sub(4);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Bubble list-default inside a relative popup",
+            Style::default().fg(Color::Indexed(244)),
+        ))),
+        Rect::new(row_x, inner.y, row_width, 1),
     );
+
+    let mut y = inner.y + 2;
+    for (index, dropdown) in app.widgets2.iter_mut().enumerate() {
+        let focused = index == app.widgets2_focus;
+        dropdown.styles.label = if focused {
+            Style::default()
+                .fg(Color::Indexed(219))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Indexed(244))
+        };
+        dropdown.render_field(Rect::new(row_x, y, row_width, 1), frame.buffer_mut());
+        y += 2;
+    }
+
+    let selected = app.widgets2[app.widgets2_focus].value();
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("selected ", Style::default().fg(Color::Indexed(240))),
+            Span::styled(
+                format!(" {selected} "),
+                Style::default()
+                    .fg(Color::Indexed(231))
+                    .bg(Color::Indexed(237)),
+            ),
+        ])),
+        Rect::new(row_x, inner.bottom().saturating_sub(2), row_width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Enter opens the list · ↑/↓ move · Enter selects · Esc closes",
+            Style::default().fg(Color::Indexed(241)),
+        ))),
+        Rect::new(row_x, inner.bottom().saturating_sub(1), row_width, 1),
+    );
+
+    for dropdown in &mut app.widgets2 {
+        dropdown.render_popup(frame.buffer_mut());
+    }
+}
+
+fn render_forms_demo(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
+    let block = Block::default()
+        .title(" Form ")
+        .borders(Borders::ALL)
+        .border_set(Border::rounded().into_border_set())
+        .border_style(Style::default().fg(Color::Indexed(99)))
+        .style(Style::default().bg(Color::Indexed(234)));
+    let inner = block.inner(area);
+    block.render(area, frame.buffer_mut());
+
+    app.form.render(inner, frame);
+
+    let signal = app.form_hooks.borrow().clone();
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("signal  ", Style::default().fg(Color::Indexed(238))),
+            Span::styled(signal, Style::default().fg(Color::Indexed(244))),
+        ])),
+        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+    );
+}
+
+fn render_form_divider(frame: &mut Frame, area: Rect, y: u16, title: &str, active: bool) {
+    let neon = Color::Rgb(0, 240, 255);
+    let marker_style = if active {
+        Style::default().fg(neon).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Indexed(141))
+    };
+    let title_style = if active {
+        Style::default().fg(neon).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Indexed(244))
+    };
+    let rule_style = Style::default().fg(if active {
+        Color::Indexed(244)
+    } else {
+        Color::Indexed(238)
+    });
+    let title_width = UnicodeWidthStr::width(title) as u16;
+    let used = 3u16.saturating_add(title_width);
+    let rule_width = area.width.saturating_sub(used.saturating_add(1));
+
+    let line = Line::from(vec![
+        Span::styled("◆", marker_style),
+        Span::raw("  "),
+        Span::styled(title.to_string(), title_style),
+        Span::raw(" "),
+        Span::styled("─".repeat(rule_width as usize), rule_style),
+    ]);
+    frame.buffer_mut().set_line(area.x, y, &line, area.width);
+}
+
+fn wrap_form_text(text: &str, width: u16) -> Vec<String> {
+    let max_width = width.max(1) as usize;
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut current = String::new();
+        let mut current_width = 0usize;
+        for word in paragraph.split_whitespace() {
+            let word_width = UnicodeWidthStr::width(word);
+            if current.is_empty() {
+                current.push_str(word);
+                current_width = word_width;
+            } else if current_width + 1 + word_width <= max_width {
+                current.push(' ');
+                current.push_str(word);
+                current_width += 1 + word_width;
+            } else {
+                lines.push(std::mem::take(&mut current));
+                current.push_str(word);
+                current_width = word_width;
+            }
+        }
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn render_controls_panel(frame: &mut Frame, area: Rect, app: &ShowcaseApp) {
+    render_demo_block(frame, area, "Checkboxes + Radios", app.widgets_focus == 4);
     let inner = inner_rect(area);
     let label_width = 11u16;
     let value_x = inner.x + label_width + 2;
     let value_width = inner.right().saturating_sub(value_x + 1);
     let mut y = inner.y;
-    let draw_row = |frame: &mut Frame,
-                    y: u16,
-                    label: &str,
-                    line: Line<'static>,
-                    active: bool| {
+    let draw_row = |frame: &mut Frame, y: u16, label: &str, line: Line<'static>, active: bool| {
         let style = if active {
             Style::default()
                 .fg(Color::Indexed(219))
@@ -1485,10 +2547,7 @@ fn render_controls_panel(frame: &mut Frame, area: Rect, app: &ShowcaseApp) {
             Paragraph::new(Span::styled(label, style)),
             Rect::new(inner.x, y, label_width, 1),
         );
-        frame.render_widget(
-            Paragraph::new(line),
-            Rect::new(value_x, y, value_width, 1),
-        );
+        frame.render_widget(Paragraph::new(line), Rect::new(value_x, y, value_width, 1));
     };
     let focused = app.widgets_focus == 4;
 

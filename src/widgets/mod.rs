@@ -2,6 +2,7 @@ pub mod bigtext;
 pub mod checkbox;
 pub mod cursor;
 pub mod diff;
+pub mod dropdown;
 pub mod filepicker;
 pub mod help;
 pub mod key;
