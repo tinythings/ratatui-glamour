@@ -129,6 +129,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render(
     frame: &mut Frame,
     spin: &spinner::Model,

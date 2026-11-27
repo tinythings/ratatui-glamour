@@ -11,6 +11,7 @@ This crate is not a 1:1 port of Lip Gloss. It is a Rust-native, `ratatui`-friend
 - Border presets including rounded, thick, double, ASCII, markdown, and block variants
 - Gradient helpers for 1D ramps and 2D color meshes
 - Tree and list widgets with custom enumerators and styling
+- `TreePlus`: walkable, collapsible trees with skippable nodes, custom arrows, rich multi-span content and selection styling
 - A table widget with wrapping, scrolling, and per-cell styling hooks
 - Layered composition with hit-testing and ANSI/text export
 - Surface helpers for centered panels, patterned fills, tabs, and rounded gradient panels
@@ -30,7 +31,7 @@ This crate is not a 1:1 port of Lip Gloss. It is a Rust-native, `ratatui`-friend
 ```toml
 [dependencies]
 ratatui = "0.30"
-ratatui-glamour = "0.9"
+ratatui-glamour = "0.10"
 ```
 
 ## Quick Example
@@ -138,6 +139,7 @@ Use `.highlighter(Highlighter::new(|line, base| ...))` to apply syntax colours. 
 - `surface`: rounded panels, centered layouts, text patterns, and classic tabs
 - `table`: a text table widget with wrapping, sizing, borders, and style callbacks
 - `tree`: styled tree rendering with custom branch and indent behavior
+- `widgets::tree_plus`: stateful walkable/collapsible tree with skippable nodes, rich content spans, custom arrows, and selection styling
 - `widgets`: Bubble-style stateful widgets ported for ratatui, including key maps, help views, spinners, paginators, viewports, text inputs, text areas, lists, checkboxes, radio groups, dropdowns, and side-by-side diffs
 
 ## Showcase
@@ -173,6 +175,7 @@ The showcase includes:
 - gradient ramps and 2D meshes
 - border variants
 - list and tree rendering
+- walkable, collapsible `TreePlus` with skippable nodes and rich content
 - table layout behavior
 - layered composition and hit-testing
 - surface and layout helpers

@@ -38,11 +38,12 @@ use ratatui_glamour::{
         radiogroup::{Model as WidgetRadioGroup, Orientation as RadioOrientation},
         textarea::Model as WidgetTextArea,
         textinput::Model as WidgetTextInput,
+        tree_plus::{Content as TreePlusContent, Node as TreePlusNode, TreePlus as WidgetTreePlus},
     },
 };
 use unicode_width::UnicodeWidthStr;
 
-const TAB_TITLES: [&str; 9] = [
+const TAB_TITLES: [&str; 10] = [
     "Gradients",
     "Borders",
     "Tree + List",
@@ -52,6 +53,7 @@ const TAB_TITLES: [&str; 9] = [
     "Widgets",
     "Widgets 2",
     "Forms",
+    "Tree+",
 ];
 const LAYOUT_WIDTH: u16 = 96;
 const LAYOUT_HEIGHT: u16 = 52;
@@ -88,6 +90,150 @@ fn list_default_items() -> Vec<DefaultListItem> {
     .into_iter()
     .map(|(title, description)| DefaultListItem::new(title, description))
     .collect()
+}
+
+fn tree_plus_content(
+    id: &str,
+    status: &str,
+    description: &str,
+    status_color: Color,
+) -> TreePlusContent {
+    TreePlusContent::from(vec![
+        Span::styled(
+            format!("{id:<12} "),
+            Style::default().fg(Color::Indexed(244)),
+        ),
+        Span::styled(
+            format!("{status:<10} "),
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            description.to_string(),
+            Style::default().fg(Color::Indexed(250)),
+        ),
+    ])
+}
+
+fn tree_plus_demo() -> WidgetTreePlus {
+    let mut tree = WidgetTreePlus::new(vec![
+        TreePlusNode::new(
+            "glamour",
+            tree_plus_content(
+                "glamour",
+                "root",
+                "interactive widget gallery",
+                Color::Indexed(212),
+            ),
+        )
+        .children([
+            TreePlusNode::new(
+                "inputs",
+                tree_plus_content(
+                    "inputs",
+                    "group",
+                    "text, keys and pickers",
+                    Color::Indexed(105),
+                ),
+            )
+            .children([
+                TreePlusNode::new(
+                    "textinput",
+                    tree_plus_content(
+                        "textinput",
+                        "ready",
+                        "text input with suggestions",
+                        Color::Indexed(114),
+                    ),
+                ),
+                TreePlusNode::new(
+                    "filepicker",
+                    tree_plus_content(
+                        "filepicker",
+                        "ready",
+                        "filesystem browser",
+                        Color::Indexed(114),
+                    ),
+                ),
+                TreePlusNode::new(
+                    "treeplus",
+                    tree_plus_content(
+                        "treeplus",
+                        "new",
+                        "walkable collapsible tree",
+                        Color::Indexed(212),
+                    ),
+                ),
+            ]),
+            TreePlusNode::new(
+                "display",
+                tree_plus_content("display", "group", "visual components", Color::Indexed(105)),
+            )
+            .children([
+                TreePlusNode::new(
+                    "progress",
+                    tree_plus_content(
+                        "progress",
+                        "ready",
+                        "animated progress bar",
+                        Color::Indexed(114),
+                    ),
+                ),
+                TreePlusNode::new(
+                    "table",
+                    tree_plus_content(
+                        "table",
+                        "ready",
+                        "scrollable data grid",
+                        Color::Indexed(114),
+                    ),
+                ),
+                TreePlusNode::new(
+                    "diff",
+                    tree_plus_content(
+                        "diff",
+                        "ready",
+                        "side-by-side text diff",
+                        Color::Indexed(114),
+                    ),
+                ),
+            ]),
+            TreePlusNode::new(
+                "separator",
+                TreePlusContent::from("────────────────────────────────────────"),
+            )
+            .skippable(true),
+            TreePlusNode::new(
+                "experimental",
+                tree_plus_content(
+                    "experimental",
+                    "wip",
+                    "not ready for the sampler",
+                    Color::Indexed(203),
+                ),
+            )
+            .children([
+                TreePlusNode::new(
+                    "canvas",
+                    tree_plus_content("canvas", "wip", "layered composition", Color::Indexed(203)),
+                ),
+                TreePlusNode::new(
+                    "animations",
+                    tree_plus_content(
+                        "animations",
+                        "wip",
+                        "spring-driven effects",
+                        Color::Indexed(203),
+                    ),
+                ),
+            ]),
+        ]),
+    ]);
+    tree.symbols.collapsed = "▶ ".into();
+    tree.symbols.expanded = "▼ ".into();
+    tree.collapse("display");
+    tree
 }
 
 type FormFocusHook = Box<dyn FnMut(&str)>;
@@ -889,6 +1035,7 @@ struct ShowcaseApp {
     widgets_radio_vertical: WidgetRadioGroup,
     widgets2_focus: usize,
     widgets2: [WidgetDropdown; 5],
+    tree_plus: WidgetTreePlus,
     form: Form,
     form_hooks: Rc<RefCell<String>>,
 }
@@ -1259,6 +1406,7 @@ impl Default for ShowcaseApp {
             widgets_radio_vertical,
             widgets2_focus: 0,
             widgets2,
+            tree_plus: tree_plus_demo(),
             form,
             form_hooks,
         }
@@ -1408,6 +1556,11 @@ impl ShowcaseApp {
                 KeyCode::Right => self.next_tab(),
                 _ => {}
             }
+            return;
+        }
+
+        if self.tab == 9 {
+            let _ = self.tree_plus.handle_key(&key);
             return;
         }
 
@@ -1650,6 +1803,7 @@ fn render_app(frame: &mut Frame, app: &mut ShowcaseApp) {
         6 => render_widgets_demo(body_area, frame, app),
         7 => render_widgets2_demo(body_area, frame, app),
         8 => render_forms_demo(body_area, frame, app),
+        9 => render_tree_plus(body_area, frame, app),
         _ => {}
     }
 
@@ -1661,6 +1815,7 @@ fn render_app(frame: &mut Frame, app: &mut ShowcaseApp) {
         }
         7 => "Tab/↑/↓ field  Enter open/select  Esc close  Shift+←/→ pages  q quit",
         8 => "Tab/↑/↓ field  type to edit  Space toggle  ←/→ select  Shift+←/→ pages  q quit",
+        9 => "↑/↓ walk  ←/→ collapse/expand  Space toggle  Enter activate  Shift+←/→ tabs  q quit",
         _ => "Shift+←/→ pages  q quit",
     };
     Paragraph::new(help)
@@ -1809,6 +1964,20 @@ fn render_borders(area: Rect, frame: &mut Frame) {
             .render(inner, frame.buffer_mut());
         }
     }
+}
+
+fn render_tree_plus(area: Rect, frame: &mut Frame, app: &mut ShowcaseApp) {
+    let block = Block::default()
+        .title(" TreePlus · walkable nodes ")
+        .borders(Borders::ALL)
+        .border_set(Border::rounded().into_border_set())
+        .border_style(Style::default().fg(Color::Indexed(141)))
+        .style(Style::default().bg(Color::Indexed(234)));
+    let inner = block.inner(area);
+    block.render(area, frame.buffer_mut());
+    app.tree_plus
+        .set_size(inner.width as usize, inner.height as usize);
+    app.tree_plus.render(inner, frame.buffer_mut());
 }
 
 fn render_tree_list(area: Rect, frame: &mut Frame) {
